@@ -30,3 +30,7 @@ grafana/data/
 
 # source code
 fresh-market/
+
+# sonar
+sonar-db-data/
+sonarqube/

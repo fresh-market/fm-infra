@@ -15,15 +15,13 @@ TOKEN=$(tail -n 1 "$TOKEN_FILE" | tr -d '\r\n' | xargs)
 echo "✅ 토큰 추출 완료!"
 echo "🚀 Spring Boot 테스트 및 SonarQube 정적 분석을 시작합니다..."
 
-docker run --rm \
-  -v "$(pwd)/fm-backend:/home/gradle/project" \
-  -w /home/gradle/project \
-  --network host \
-  gradle:8-jdk21 \
-  gradle clean test sonar \
-    -Dsonar.host.url="http://localhost:9007" \
-    -Dsonar.login="$TOKEN" \
-    -Dsonar.projectKey="fresh-market"
+cd ./fm-backend
+
+./gradlew clean test jacocoTestReport sonar \
+  -Dsonar.projectKey=fresh-market \
+  -Dsonar.projectName=fresh-market \
+  -Dsonar.host.url=http://localhost:9007 \
+  -Dsonar.login="${TOKEN}"
 
 echo "================================================="
 echo "🎉 분석이 완료되었습니다!"
