@@ -1,0 +1,147 @@
+services:
+  # ─── Database ─────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.4
+    container_name: mysql
+    restart: always
+    ports:
+      - "9002:3306"
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+      - ./mysql/conf.d:/etc/mysql/conf.d
+    environment:
+      MYSQL_DATABASE: app_db
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app1234
+      MYSQL_ROOT_PASSWORD: 1234
+      TZ: Asia/Seoul
+    healthcheck:
+      test:
+        ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uapp", "-papp1234"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-net
+
+  # ─── Monitoring ───────────────────────────────────────────────────────────
+  mysqld-exporter:
+    image: prom/mysqld-exporter:latest
+    container_name: mysqld-exporter
+    ports:
+      - "9003:9104"
+    command:
+      - "--mysqld.address=mysql:3306"
+      - "--mysqld.username=app"
+    environment:
+      MYSQLD_EXPORTER_PASSWORD: app1234
+    networks:
+      - app-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9004:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - app-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "9005:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning/datasources/
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: user123
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/api/health",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - app-net
+    depends_on:
+      - prometheus
+
+  grafana-init:
+    image: python:3.12-alpine
+    depends_on:
+      grafana:
+        condition: service_healthy
+    volumes:
+      - ./grafana/provisioning/dashboards:/dashboards:ro
+      - ./grafana/import_dashboards.py:/import_dashboards.py:ro
+    networks:
+      - app-net
+    command: python3 /import_dashboards.py
+    restart: on-failure
+
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: sonarqube
+    ports:
+      - "9007:9000"
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://sonar-db:5432/sonar
+      - SONAR_JDBC_USERNAME=sonar
+      - SONAR_JDBC_PASSWORD=sonar_password
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    networks:
+      - app-net
+
+  sonar-db:
+    image: postgres:15-alpine
+    container_name: sonar-db
+    environment:
+      - POSTGRES_USER=sonar
+      - POSTGRES_PASSWORD=sonar_password
+      - POSTGRES_DB=sonar
+    volumes:
+      - ./sonar-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-net
+
+  sonar-setup:
+    image: curlimages/curl:latest
+    container_name: sonar-setup
+    user: "root"
+    depends_on:
+      - sonarqube
+    volumes:
+      - ./sonarqube:/sonarqube
+    entrypoint: ["/bin/sh", "/sonarqube/setup.sh"]
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  grafana-data:
