@@ -47,9 +47,15 @@ resource "aws_instance" "monitoring" {
   }
 }
 
-# 앱과 같은 jar 를 prod,batch 프로필로 띄운다. ALB 에 붙지 않는다.
+/*
+ * 앱과 같은 jar 를 prod,batch 프로필로 띄운다. ALB 에 붙지 않는다.
+ *
+ * AMI 가 x86 인 것은 앱과 같은 컨테이너 이미지를 받기 때문이다.
+ * 빌드가 러너(x86_64)에서 단일 아키텍처로 나오므로 앱이 x86 인 한 배치도 x86 이어야 한다.
+ * arm 으로 두었을 때 컨테이너가 exec format error 로 계속 재시작했다.
+ */
 resource "aws_instance" "batch" {
-  ami                    = data.aws_ami.ubuntu_arm.id
+  ami                    = data.aws_ami.ubuntu_x86.id
   instance_type          = var.instance_types["batch"]
   subnet_id              = aws_subnet.public["a"].id
   vpc_security_group_ids = [aws_security_group.batch.id]
