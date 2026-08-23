@@ -47,3 +47,12 @@ metrics:
     aws_dimensions: [CacheClusterId]
     aws_statistics: [Average]
     period_seconds: 300
+
+  # EC2 크레딧은 이 경로로만 나온다.
+  # node_exporter 는 호스트 안에서 보는 것이라 하이퍼바이저가 관리하는 크레딧 잔량을 알지 못한다.
+  # 이것이 없으면 CpuCreditLow 와 CpuCreditCritical 이 발동할 지표를 갖지 못한다.
+  - aws_namespace: AWS/EC2
+    aws_metric_name: CPUCreditBalance
+    aws_dimensions: [InstanceId]
+    aws_statistics: [Average]
+    period_seconds: 300
