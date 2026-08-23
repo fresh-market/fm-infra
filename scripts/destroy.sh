@@ -13,7 +13,7 @@
 # destroy 가 끝나도 남는 것이 있다. delete_on_termination=false 인 EBS 볼륨이다.
 # 모니터링 루트 볼륨이 그렇다. 관측 데이터를 지키려는 설정이라 Terraform 이 일부러 안 지운다.
 #
-# bootstrap/ 이 갖는 것은 대상이 아니다. tfstate 버킷과 SecureString 8개가 살아남는다.
+# bootstrap/ 이 갖는 것은 대상이 아니다. tfstate 버킷과 SecureString 시크릿이 살아남는다.
 # 시크릿은 표준 파라미터라 무료이므로 지워봐야 아끼는 것이 없고 재입력만 생긴다.
 #
 # 이 스크립트는 대상이 없어 실제로 검증된 적이 없다. 절차는 2026-08-21 수동 파괴에서 나왔다.
@@ -103,8 +103,9 @@ printf '  ALB            %s\n' "$(aws elbv2 describe-load-balancers --region "$R
 printf '  ASG            %s\n' "$(aws autoscaling describe-auto-scaling-groups --region "$REGION" --query 'length(AutoScalingGroups)' --output text)"
 printf '  VPC(기본 제외) %s\n' "$(aws ec2 describe-vpcs --region "$REGION" --query 'length(Vpcs[?IsDefault==`false`])' --output text)"
 printf '  EIP            %s\n' "$(aws ec2 describe-addresses --region "$REGION" --query 'length(Addresses)' --output text)"
-# bootstrap/ 의 SecureString 8개는 남는 것이 정상이다. 0 이면 오히려 잘못됐다.
-printf '  SSM 파라미터   %s (시크릿 8개는 남는 것이 정상)\n' "$(aws ssm describe-parameters --region "$REGION" --query 'length(Parameters)' --output text)"
+# 시크릿은 남는 것이 정상이다. 0 이면 오히려 잘못됐다.
+# 개수를 적지 않는다. 목록은 apply.sh 2단계가 갖고 있어 늘어나면 이쪽이 먼저 낡는다.
+printf '  SSM 파라미터   %s (시크릿은 남는 것이 정상. Terraform 이 만든 것만 사라진다)\n' "$(aws ssm describe-parameters --region "$REGION" --query 'length(Parameters)' --output text)"
 printf '  CloudWatch알람 %s\n' "$(aws cloudwatch describe-alarms --region "$REGION" --query 'length(MetricAlarms)' --output text)"
 printf '  로그 그룹      %s\n' "$(aws logs describe-log-groups --region "$REGION" --query 'length(logGroups)' --output text)"
 printf '  Route53 존     %s\n' "$(aws route53 list-hosted-zones --query 'length(HostedZones)' --output text)"
@@ -116,6 +117,6 @@ printf '  IAM 역할       %s\n' "$(aws iam list-roles \
 echo
 log "파괴 완료"
 log "  KMS 키 3개(aws/ebs, aws/rds, aws/ssm)는 AWS 관리형이라 남는다. 무료이고 삭제할 수 없다"
-log "  bootstrap/ 이 갖는 것은 남는다. tfstate 버킷과 SecureString 8개다"
+log "  bootstrap/ 이 갖는 것은 남는다. tfstate 버킷과 SecureString 시크릿이다"
 log "  시크릿은 표준 파라미터라 무료다. 지워봐야 아끼는 것이 없고 재입력만 생긴다"
 log "  IAM 역할이 0 이 아니면 Terraform 밖에서 만든 것이다. 콘솔 활동의 잔재일 수 있다"
