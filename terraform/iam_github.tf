@@ -12,15 +12,31 @@ resource "aws_iam_openid_connect_provider" "github" {
   thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 }
 
+/*
+ * 주체를 두 형식으로 받는다.
+ *
+ * GitHub 이 OIDC 주체에 불변 ID 를 넣는 형식으로 옮겨 가는 중이라, 같은 저장소가
+ * repo:org/repo 로도 오고 repo:org@<orgId>/repo@<repoId> 로도 온다.
+ * 어느 쪽을 보내는지는 저장소의 actions/oidc/customization/sub 설정에 달려 있고 바뀔 수 있다.
+ *
+ * 한쪽만 적어 두면 GitHub 이 형식을 바꾸는 날 배포가 통째로 막힌다.
+ * 둘 다 같은 저장소의 같은 ref 를 가리키므로 열어 두어도 넓어지는 범위가 없다.
+ */
 locals {
   github_roles = {
     deploy = {
       description = "deploy on merge to fm-backend main"
-      subject     = "repo:${var.github_org}/${var.github_backend_repo}:ref:refs/heads/main"
+      subjects = [
+        "repo:${var.github_org}/${var.github_backend_repo}:ref:refs/heads/main",
+        "repo:${var.github_org}@${var.github_org_id}/${var.github_backend_repo}@${var.github_backend_repo_id}:ref:refs/heads/main",
+      ]
     }
     tf_plan = {
       description = "terraform plan from fm-infra pull requests"
-      subject     = "repo:${var.github_org}/${var.github_infra_repo}:pull_request"
+      subjects = [
+        "repo:${var.github_org}/${var.github_infra_repo}:pull_request",
+        "repo:${var.github_org}@${var.github_org_id}/${var.github_infra_repo}@${var.github_infra_repo_id}:pull_request",
+      ]
     }
   }
 }
@@ -47,7 +63,7 @@ data "aws_iam_policy_document" "github_assume" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = [each.value.subject]
+      values   = each.value.subjects
     }
   }
 }

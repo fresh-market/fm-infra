@@ -216,3 +216,25 @@ variable "db_backup_retention_days" {
   type        = number
   default     = 7
 }
+
+/*
+ * GitHub 의 불변 식별자다. 이름을 바꿔도 변하지 않아 OIDC 주체의 새 형식에 쓰인다.
+ * gh api orgs/<org> 와 gh api repos/<org>/<repo> 의 id 값이다.
+ */
+variable "github_org_id" {
+  description = "GitHub 조직의 숫자 ID"
+  type        = string
+  default     = "311220188"
+}
+
+variable "github_backend_repo_id" {
+  description = "fm-backend 저장소의 숫자 ID"
+  type        = string
+  default     = "1317781402"
+}
+
+variable "github_infra_repo_id" {
+  description = "fm-infra 저장소의 숫자 ID"
+  type        = string
+  default     = "1317795965"
+}
