@@ -95,7 +95,6 @@ data "aws_iam_policy_document" "deploy" {
 
     actions = [
       "autoscaling:SetDesiredCapacity",
-      "autoscaling:TerminateInstanceInAutoScalingGroup",
     ]
 
     resources = ["*"]
@@ -106,6 +105,24 @@ data "aws_iam_policy_document" "deploy" {
       variable = "autoscaling:ResourceTag/Project"
       values   = [var.project]
     }
+  }
+
+  /*
+   * 구 인스턴스 종료만 태그 조건 없이 둔다.
+   *
+   * SetDesiredCapacity 는 ASG 이름으로 부르므로 AWS 가 그 ASG 의 태그를 조건에 채워 준다.
+   * TerminateInstanceInAutoScalingGroup 은 인스턴스 ID 로 부르는 API 라 그 값이 채워지지 않고,
+   * 같은 조건을 걸면 실제 호출이 AccessDenied 로 막힌다. 배포 9단계가 여기서 죽었다.
+   * IAM 시뮬레이터는 태그 컨텍스트를 사람이 넣어 주므로 allowed 로 나와 차이가 드러나지 않는다.
+   *
+   * 대신 범위는 좁게 유지된다. 이 계정에는 ASG 가 하나뿐이고,
+   * 이 역할은 fm-backend 의 main 브랜치에서만 맡을 수 있다.
+   */
+  statement {
+    sid       = "TerminateRolledInstance"
+    effect    = "Allow"
+    actions   = ["autoscaling:TerminateInstanceInAutoScalingGroup"]
+    resources = ["*"]
   }
 
   /*
