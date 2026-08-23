@@ -51,7 +51,7 @@
 | 대상 | 누가 |
 |---|---|
 | ASG, 시작 템플릿, 대상 그룹, 리스너 | Terraform |
-| **SSM 파라미터 리소스** | Terraform (시크릿 8개는 `bootstrap/`) |
+| **SSM 파라미터 리소스** | Terraform (시크릿은 `apply.sh` 2단계가 만든다) |
 | **SSM 파라미터의 값** | **스크립트**, 시크릿은 사람이 CLI 로 |
 | **desired capacity** | **스크립트** |
 | 대상 등록과 해제 | 스크립트 |
@@ -64,7 +64,7 @@ Terraform 이 값이나 desired 를 건드리면 배포가 깨진다. 그래서 
 ./scripts/apply.sh
 ```
 
-`bootstrap` 을 먼저 돌리고, 시크릿 8개가 다 찼는지 본 뒤, 본 구성을 올리고, 엔드포인트를 SSM 에 싣는다. **순서를 기억할 필요가 없다.**
+`bootstrap` 을 먼저 돌리고, 시크릿 자리를 만들고, 다 찼는지 본 뒤, 본 구성을 올리고, 엔드포인트를 SSM 에 싣는다. **순서를 기억할 필요가 없다.**
 
 마지막 단계가 필요한 이유는 Terraform 이 `db-endpoint` 와 `cache-endpoint` 를 **만들기만 하고 채우지 않기** 때문이다. `ignore_changes = [value]` 가 걸려 있어서인데, RDS 복원이 항상 새 인스턴스를 만들어 주소가 바뀌므로(`INF-26`) 스크립트가 갱신한 값을 다음 `apply` 가 되돌리면 안 되기 때문이다. 그 대가로 **최초 1회를 채울 주체가 없었다.** 두 값이 `unset` 으로 남으면 앱이 `jdbc:mysql://unset:3306` 으로 붙으려 한다.
 
@@ -95,26 +95,35 @@ Terraform 이 값이나 desired 를 건드리면 배포가 깨진다. 그래서 
 
 전용 계정(`exporter`)을 쓰는 편이 권한상 옳지만, RDS 는 `CREATE USER` 를 자동으로 해 주지 않는다. 전용 계정을 쓰려면 재구축할 때마다 사람이 DB 에 붙어 계정을 만들어야 하는데, 그 절차가 어디에도 없으면 잊힌다. 그 대가로 **감시 도구가 DB 전권을 갖는다.**
 
-전용 계정으로 되돌리려면 RDS 기동 후 아래를 실행하고 `observability/compose.yaml` 의 `MYSQLD_EXPORTER_USER` 를 `exporter` 로 고정한다.
+전용 계정으로 되돌리려면 RDS 기동 후 아래를 실행하고 `observability/compose.yaml` 의 `--mysqld.username` 을 `exporter` 로 고정한다. 이름은 환경변수가 아니라 플래그로만 들어간다. 익스포터가 환경변수로 읽는 것은 `MYSQLD_EXPORTER_PASSWORD` 하나뿐이다.
 
 ```sql
 CREATE USER 'exporter'@'%' IDENTIFIED BY '<db-exporter-password>';
 GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
 ```
 
-**`db-password` 만 Terraform 이 따로 막는다**(`rds.tf` 의 postcondition). 나머지 일곱은 `unset` 이어도 apply 가 통과하고 인스턴스가 뜬 뒤에야 드러난다. GHCR 로그인 실패로 컨테이너가 안 뜨거나 Slack 알림이 조용히 안 가는 식이다. 그래서 스크립트가 여덟 개를 한 번에 본다.
+**`db-password` 만 Terraform 이 따로 막는다**(`rds.tf` 의 postcondition). 나머지는 `unset` 이어도 apply 가 통과하고 인스턴스가 뜬 뒤에야 드러난다. GHCR 로그인 실패로 컨테이너가 안 뜨거나, `JWT_SECRET` 이 없어 앱이 기동을 못 하거나, Slack 알림이 조용히 안 가는 식이다. 그래서 스크립트가 전부를 한 번에 본다.
 
 **다른 기계에서 클론했다면** `bootstrap/terraform.tfstate` 가 없다. gitignore 되어 따라오지 않는다. 그대로 돌리면 이미 있는 버킷을 다시 만들려다 죽으므로, 스크립트가 그 상황을 먼저 감지해 `terraform import` 명령을 알려 준다.
 
-올린 뒤에는 출력값을 GitHub 에 넣는다.
+### 최초 1회만 하는 것
 
 ```bash
 cd terraform
 terraform output github_role_arns   # deploy 값을 fm-backend 의 AWS_DEPLOY_ROLE_ARN 변수로
-terraform output cdn_domain         # 앱의 cdn.base-url 로
 
 cp docs/deploy/backend-deploy-workflow.yml ../backend/.github/workflows/deploy.yml
 ```
+
+역할 이름이 `freshmarket-gha-deploy` 로 결정적이라 ARN 이 재구축에도 변하지 않는다. **한 번 넣으면 다시 넣지 않는다.**
+
+CDN 도메인과 ALB 주소는 재구축마다 바뀌지만 **손댈 것이 없다.** 앞의 것은 `apply.sh` 5단계가 SSM `cdn-domain` 에 실어 앱 컨테이너까지 보내고, 뒤의 것은 `deploy.sh` 가 스모크 직전에 직접 조회한다.
+
+### 재구축마다 남는 수동 작업
+
+**SNS 이메일 구독 확인 하나뿐이다.** 구독 리소스가 파괴되고 다시 만들어지므로 확인 메일이 다시 오고, 링크를 눌러야 CloudWatch 알람이 갈 곳이 생긴다. AWS 가 사람 확인을 요구해 자동화할 수 없다.
+
+첫 인스턴스는 `current-sha` 가 `bootstrap` 인 채로 떠서 이미지를 못 받고 unhealthy 가 된다. **이것은 손댈 필요가 없다.** 사전 점검이 healthy 0 을 지킬 용량 없음으로 보고 통과시키고, 배포가 새 인스턴스를 띄운 뒤 그 인스턴스를 종료한다.
 
 ## 세션 단위로 껐다 켠다
 
@@ -156,10 +165,10 @@ cp docs/deploy/backend-deploy-workflow.yml ../backend/.github/workflows/deploy.y
 
 남는 것들은 정상이다.
 
-- **`bootstrap/` 이 갖는 것 전부.** tfstate 버킷과 **SecureString 8개**다. 대상이 아니라 그대로 살아남는다
+- **`bootstrap/` 이 갖는 것 전부.** tfstate 버킷과 **SecureString 시크릿**이다. 대상이 아니라 그대로 살아남는다
 - **KMS 키 3개** (`aws/ebs`, `aws/rds`, `aws/ssm`). AWS 관리형이라 무료이고 삭제할 수 없다
 - **IAM 역할이 0 이 아니면** Terraform 밖에서 만든 것이다. 콘솔 활동의 잔재일 수 있다
 
-**시크릿을 남기는 것이 의도다.** SSM 표준 파라미터는 무료라 지워도 아끼는 것이 없는데, 지우면 재구축 때 8개를 손으로 다시 넣어야 한다. 그래서 `bootstrap/` 계층에 둔다. 파괴하고 다시 올려도 **비밀 재입력이 없다.**
+**시크릿을 남기는 것이 의도다.** SSM 표준 파라미터는 무료라 지워도 아끼는 것이 없는데, 지우면 재구축 때 전부를 손으로 다시 넣어야 한다. 그래서 Terraform 밖에 둔다. 파괴하고 다시 올려도 **비밀 재입력이 없다.**
 
 마지막에 `terraform state` 가 아니라 **AWS 에 직접 조회해** 잔여를 센다. 상태와 실제가 어긋날 수 있다.
