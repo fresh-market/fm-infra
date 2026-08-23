@@ -16,10 +16,21 @@ get() { aws ssm get-parameter --name "$P/$1" --region "$R" --query 'Parameter.Va
 sec() { aws ssm get-parameter --name "$P/$1" --region "$R" --with-decryption --query 'Parameter.Value' --output text; }
 
 # 웹훅 URL 은 사실상 자격증명이다. 파일로 떨어뜨려 Alertmanager 가 읽게 한다.
-install -d -m 0700 /run/secrets
+#
+# 소유자를 65534(nobody)로 맞춘다. prom/alertmanager 가 그 사용자로 돌기 때문이다.
+# root:root 0600 으로 두면 컨테이너가 permission denied 로 읽지 못하고,
+# Alertmanager 는 그때 알람을 버리면서 자기 로그에만 남긴다.
+# 알람이 안 오는 것으로만 드러나는 고장이라 Slack 이 조용한 것이 정상인지 구분되지 않는다.
+#
+# 0600 은 유지한다. 소유자만 바뀌고 다른 사용자에게는 그대로 닫혀 있다.
+# 디렉터리도 같은 이유로 소유자를 맞춘다. 0700 이라 소유자가 아니면 들어가지 못한다.
+ALERTMANAGER_UID=65534
+install -d -m 0700 -o "$ALERTMANAGER_UID" -g "$ALERTMANAGER_UID" /run/secrets
 for name in critical warning watchdog; do
-  sec "slack-webhook-$name" > "/run/secrets/slack_webhook_$name"
-  chmod 600 "/run/secrets/slack_webhook_$name"
+  f="/run/secrets/slack_webhook_$name"
+  sec "slack-webhook-$name" > "$f"
+  chown "$ALERTMANAGER_UID:$ALERTMANAGER_UID" "$f"
+  chmod 600 "$f"
 done
 
 install -d -m 0755 "$D"
