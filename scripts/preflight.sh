@@ -49,9 +49,17 @@ check PRE-1-03 "모니터링 인스턴스: ${mon}대" "$([ "$mon" -ge 1 ] && ech
 # 가장 중요한 항목이다.
 # 배포는 신규를 띄우고 구 인스턴스를 지우는 절차라, 시작 시점에 이미 부족하면
 # 배포 중에 용량이 더 떨어지고 그것이 배포 때문인지 원래 그랬는지 구분할 수 없다.
+#
+# 첫 배포는 예외다. 아직 배포된 적이 없으면 healthy 가 0 인 것이 정상이고,
+# 이 항목이 막으면 첫 배포가 영원히 불가능해진다. 지킬 용량이 없으므로 지킬 것도 없다.
+# 판정은 current-sha 로 한다. 한 번이라도 배포되면 실제 SHA 가 들어가 이 예외가 닫힌다.
+deployed_sha=$(aws ssm get-parameter --name "/$PROJECT/current-sha" --region "$REGION" \
+  --query 'Parameter.Value' --output text 2>/dev/null || echo bootstrap)
 tg_arn=$(aws elbv2 describe-target-groups --names "$PROJECT-app" \
   --region "$REGION" --query 'TargetGroups[0].TargetGroupArn' --output text 2>/dev/null || echo "")
-if [ -n "$tg_arn" ]; then
+if [ "$deployed_sha" = "bootstrap" ]; then
+  printf '  SKIP  %-12s %s\n' PRE-1-04 "첫 배포다 (current-sha=bootstrap)"
+elif [ -n "$tg_arn" ]; then
   healthy=$(aws elbv2 describe-target-health --target-group-arn "$tg_arn" --region "$REGION" \
     --query 'length(TargetHealthDescriptions[?TargetHealth.State==`healthy`])' --output text)
   desired=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$PROJECT-app" \
