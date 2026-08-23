@@ -92,10 +92,20 @@ for id in $new_ids; do
   fi
 done
 
-if [ -n "${SMOKE_URL:-}" ]; then
-  log "7. 스모크 (ALB 경유) $SMOKE_URL"
-  curl -fsS --max-time 10 "$SMOKE_URL" > /dev/null
-fi
+# 7. ALB 를 경유해 한 번 더 찌른다. 6번이 인스턴스 직접이라 경로 전체를 보지 못한다.
+#
+# 주소를 밖에서 받지 않고 여기서 조회한다.
+# ALB 를 다시 만들면 DNS 이름이 바뀌는데, 그 값을 GitHub 변수에 박아 두면
+# 재구축마다 사람이 고쳐야 하고 안 고치면 여기서 호스트가 풀리지 않아 배포가 죽는다.
+# 배포 역할에 elasticloadbalancing:DescribeLoadBalancers 가 이미 있어 그냥 물어보면 된다.
+#
+# 밖에서 정하는 것은 경로뿐이다. 경로는 재구축과 무관하게 안정적이다.
+# 도메인을 붙이면 이 조회가 필요 없어지지만 그때까지는 이쪽이 맞다.
+SMOKE_PATH="${SMOKE_PATH:-/v1/products}"
+alb_dns=$(aws elbv2 describe-load-balancers --names "$PROJECT-alb" \
+  --region "$REGION" --query 'LoadBalancers[0].DNSName' --output text)
+log "7. 스모크 (ALB 경유) http://$alb_dns$SMOKE_PATH"
+curl -fsS --max-time 10 "http://$alb_dns$SMOKE_PATH" > /dev/null
 
 # 9. 3번에서 기록한 구 인스턴스만 종료한다.
 #    desired 를 함께 줄여 원래 대수로 돌아간다.
