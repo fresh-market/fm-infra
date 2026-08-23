@@ -77,7 +77,9 @@ jobs:
       - name: 롤링 배포
         env:
           PROJECT: freshmarket
-          SMOKE_URL: ${{ vars.SMOKE_URL }}
+          # 스모크 대상의 호스트는 deploy.sh 가 ALB 에서 직접 조회한다.
+          # 여기서 정하는 것은 경로뿐이고, 비우면 /v1/products 를 쓴다.
+          SMOKE_PATH: ${{ vars.SMOKE_PATH }}
         run: infra/scripts/deploy.sh ${{ github.sha }}
 
       # 배포 알림만 Alertmanager 를 거치지 않는다.
