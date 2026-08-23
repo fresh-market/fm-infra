@@ -15,10 +15,14 @@ metrics:
     aws_dimensions: [LoadBalancer]
     aws_statistics: [Sum]
 
+  # 백분위는 Statistics 가 아니라 ExtendedStatistics 로 넘긴다.
+  # p99 를 aws_statistics 에 두면 CloudWatch 가 InvalidParameterValue 로 거절해
+  # 이 지표만 조용히 수집되지 않는다.
   - aws_namespace: AWS/ApplicationELB
     aws_metric_name: TargetResponseTime
     aws_dimensions: [LoadBalancer]
-    aws_statistics: [Average, p99]
+    aws_statistics: [Average]
+    aws_extended_statistics: [p99]
 
   - aws_namespace: AWS/ApplicationELB
     aws_metric_name: ConsumedLCUs
