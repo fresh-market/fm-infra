@@ -9,7 +9,23 @@
 `INF-32` 가 "알람 규칙과 설정을 Git 으로 관리하고 읽기 전용 마운트" 로, `OPS-2-18` 이 "설정을 Git 으로 변경 후 reload 로 반영되고 인스턴스 재생성 후에도 유지되는가" 로 이 분리를 요구한다.
 
 ```
-설정 커밋  ->  인스턴스에서 git pull  ->  reload 또는 compose up -d
+설정 커밋  ->  인스턴스에서 git pull  ->  해당 컨테이너 재시작
+```
+
+**`reload` 만으로는 반영되지 않는다.** 설정 파일을 파일 단위로 바인드 마운트하는데, `git pull` 은 파일을 제자리에서 고치지 않고 새 파일로 갈아치운다. 컨테이너는 옛 파일을 계속 들고 있어 `POST /-/reload` 가 200 을 돌려주면서도 내용은 그대로다.
+
+실제로 그렇게 놓쳤다. `rules.yml` 의 CPU 크레딧 알람을 고치고 reload 했는데 Prometheus 는 몇십 분 동안 옛 표현식을 평가하고 있었다. `curl` 의 응답 코드만 보면 성공으로 보인다.
+
+```bash
+cd /opt/freshmarket/infra && git pull --ff-only
+cd observability && docker compose restart prometheus       # 규칙과 스크레이프 설정
+docker compose up -d --force-recreate cloudwatch-exporter   # 익스포터 설정
+```
+
+반영됐는지는 파일이 아니라 **프로세스에 물어본다.**
+
+```bash
+curl -s localhost:9090/api/v1/rules | grep -o '"query":"[^"]*"'
 ```
 
 ## 포트
