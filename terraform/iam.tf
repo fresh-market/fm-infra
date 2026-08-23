@@ -121,3 +121,29 @@ resource "aws_iam_role_policy" "cloudwatch_read" {
   role   = aws_iam_role.instance["monitoring"].id
   policy = data.aws_iam_policy_document.cloudwatch_read.json
 }
+
+/*
+ * Prometheus 가 스크레이프 대상을 EC2 에서 찾는다 (prometheus.yml 의 ec2_sd_configs).
+ * 인스턴스는 ASG 가 교체할 때마다 바뀌므로 주소를 고정해 둘 수 없다.
+ *
+ * 이 권한이 없으면 app, batch, node, cadvisor 잡이 통째로 죽는다.
+ * 조용히 죽는다는 것이 문제다. 대상이 0개인 잡은 경보를 내지 않고,
+ * 그 지표에 걸린 알람은 발동 조건을 영영 만족하지 못한다.
+ * HikariPendingHigh, HighFiveXXRate, CpuCreditLow, ContainerRestartLoop 이 그렇게 죽어 있었다.
+ *
+ * DescribeInstances 는 리소스 단위 제한을 지원하지 않아 * 로 둔다.
+ * 읽기 전용이고 반환값은 이 계정의 인스턴스 목록뿐이다.
+ */
+data "aws_iam_policy_document" "ec2_discovery" {
+  statement {
+    effect    = "Allow"
+    actions   = ["ec2:DescribeInstances", "ec2:DescribeAvailabilityZones"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "ec2_discovery" {
+  name   = "ec2-discovery"
+  role   = aws_iam_role.instance["monitoring"].id
+  policy = data.aws_iam_policy_document.ec2_discovery.json
+}

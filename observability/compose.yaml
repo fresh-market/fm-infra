@@ -115,6 +115,39 @@ services:
     command:
       - /config/config.yml
 
+  # 이 호스트의 지표. 앱과 배치가 쓰는 것과 같은 구성이다.
+  #
+  # prometheus.yml 의 node 와 cadvisor 잡은 Role 을 가리지 않고 실행 중인 모든 인스턴스를 긁는다.
+  # 여기에 두 익스포터가 없으면 모니터링 인스턴스만 영영 down 으로 남는다.
+  # 감시 도구가 자기 자신을 못 보는 상태이고, 이 호스트가 CPU 크레딧을 소진하면
+  # 나머지 관측이 통째로 눈이 머는데 그것을 알려 줄 지표가 없다.
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: node-exporter
+    restart: unless-stopped
+    pid: host
+    ports:
+      - "9100:9100"
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - --path.rootfs=/host
+
+  # 기본 포트가 8080 이라 다른 것과 겹치지 않게 8082 로 옮긴다. 앱 쪽과 같은 규칙이다.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    container_name: cadvisor
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "8082:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+
 volumes:
   prometheus-data:
   grafana-data:

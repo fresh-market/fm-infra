@@ -87,6 +87,16 @@ variable "domain_name" {
   default     = ""
 }
 
+/*
+ * 역할별 인스턴스 타입. 기술 스택 확정 문서 2.6절.
+ *
+ * batch 는 app 과 같은 아키텍처여야 한다. 같은 컨테이너 이미지를 batch 프로필로 띄우기 때문이다.
+ * t4g 계열(ARM64)로 두었을 때 배포 이미지가 amd64 라 컨테이너가
+ * "exec /opt/java/openjdk/bin/java: exec format error" 로 계속 재시작했다.
+ * 빌드가 러너(x86_64)에서 단일 아키텍처로 나오므로 app 이 t3 인 한 batch 도 t3 여야 한다.
+ *
+ * monitoring 은 관계없다. 자기 이미지를 따로 받고 전부 멀티아키를 제공한다.
+ */
 variable "instance_types" {
   description = "역할별 인스턴스 타입. 기술 스택 확정 문서 2.6절"
   type        = map(string)
@@ -94,7 +104,7 @@ variable "instance_types" {
   default = {
     app        = "t3.small"
     monitoring = "t4g.small"
-    batch      = "t4g.micro"
+    batch      = "t3.micro"
     load_test  = "t3a.small"
   }
 }
