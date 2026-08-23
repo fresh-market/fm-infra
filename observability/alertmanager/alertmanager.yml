@@ -16,11 +16,16 @@ route:
       group_interval: 5m
       repeat_interval: 5m
 
+# channel 을 지정하지 않는다.
+#
+# Incoming Webhook 은 발급할 때 채널이 정해져 URL 자체가 그 채널을 가리킨다.
+# 심각도 구분은 어느 웹훅을 쓰느냐로 이미 끝나므로 channel 은 중복이고,
+# 유일하게 어긋날 수 있는 부분이다. 이름이 다르면 Slack 이 channel_not_found 로
+# 거부하고 알람을 버린다. 실제로 그렇게 전 알람이 전달되지 않고 있었다.
 receivers:
   - name: critical
     slack_configs:
       - api_url_file: /run/secrets/slack_webhook_critical
-        channel: '#alerts-critical'
         title: '[CRITICAL] {{ .CommonLabels.alertname }}'
         text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
         # 대응 중인 사람이 복구를 알아야 한다.
@@ -29,7 +34,6 @@ receivers:
   - name: warning
     slack_configs:
       - api_url_file: /run/secrets/slack_webhook_warning
-        channel: '#alerts-warning'
         title: '[WARNING] {{ .CommonLabels.alertname }}'
         text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
         # 스스로 해소되는 경우가 많아 소음이 된다.
@@ -38,6 +42,5 @@ receivers:
   - name: watchdog
     slack_configs:
       - api_url_file: /run/secrets/slack_webhook_watchdog
-        channel: '#alerts-watchdog'
         title: 'watchdog'
         send_resolved: false
