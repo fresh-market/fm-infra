@@ -58,10 +58,15 @@ metrics:
   #
   # range 를 전역값(300)보다 넓게 잡는다. CloudWatch 가 이 지표를 5분마다 내는데
   # 조회 범위가 같은 5분이면 스크레이프가 빈 구간에 걸려 계열이 사라진다.
-  # 그러면 알람의 for: 5m 이 연속으로 충족되지 못해 영영 발동하지 않는다.
+  #
+  # set_timestamp 를 끄는 것이 짝이다. 켜 두면 익스포터가 CloudWatch 원본 시각을 그대로 붙이는데,
+  # 그 시각은 발행 지연 때문에 현재보다 수 분 전이다. Prometheus 의 순간 조회는 5분만 되돌아보므로
+  # 값이 멀쩡히 수집되는데도 조회에서는 계속 비어 보인다. 범위를 넓힐수록 더 오래된 값을 골라 악화된다.
+  # 끄면 스크레이프 시각으로 기록되어 알람의 for 절이 연속으로 성립한다.
   - aws_namespace: AWS/EC2
     aws_metric_name: CPUCreditBalance
     aws_dimensions: [InstanceId]
     aws_statistics: [Average]
     period_seconds: 300
-    range_seconds: 1800
+    range_seconds: 900
+    set_timestamp: false
