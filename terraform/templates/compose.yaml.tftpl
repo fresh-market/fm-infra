@@ -12,12 +12,19 @@ services:
       DB_URL: "jdbc:mysql://$${DB_ENDPOINT}:3306/${db_name}?connectTimeout=3000&socketTimeout=10000"
       DB_USERNAME: "${db_username}"
       DB_PASSWORD: "$${DB_PASSWORD}"
+      # 앱이 기본값 없이 요구하는 값들이다. 빠지면 @Value 가 기동을 막는다.
+      # 값은 SSM 시크릿에서 refresh-env 를 거쳐 .env 로 들어온다.
+      JWT_SECRET: "$${JWT_SECRET}"
+      KAKAO_CLIENT_ID: "$${KAKAO_CLIENT_ID}"
+      KAKAO_CLIENT_SECRET: "$${KAKAO_CLIENT_SECRET}"
+      KAKAO_APP_ID: "$${KAKAO_APP_ID}"
+      KAKAO_ADMIN_KEY: "$${KAKAO_ADMIN_KEY}"
       # 이름을 앱에 맞춘다. 앱은 로컬 compose 와 같은 변수를 써야 해서 VALKEY_HOST 로 정했다.
       # 값은 SSM cache-endpoint 에서 온다. 복원으로 주소가 바뀌면 refresh-env 가 따라잡는다.
       VALKEY_HOST: "$${CACHE_ENDPOINT}"
       VALKEY_PORT: "6379"
-      # 앱이 이미지 URL 앞에 붙일 주소다. 앱에 아직 cdn.base-url 설정이 없어 지금은 아무도 읽지 않는다.
-      # 이름을 그 설정 키에 맞춰 둔다. 앱이 키를 더하는 순간 값이 그대로 들어간다.
+      # 앱의 cdn.base-url 이 이 값을 읽는다 (fm-backend #66).
+      # 이미지 URL 앞에 붙는 주소이고, 이름을 그 설정 키에 맞춰 두었다.
       CDN_BASE_URL: "https://$${CDN_DOMAIN}"
       APP_NAME: "${project}"
       APP_INSTANCE_ID: "$${APP_INSTANCE_ID}"

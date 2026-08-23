@@ -20,6 +20,13 @@ LOKI_ENDPOINT=$(get loki-endpoint)
 DB_PASSWORD=$(sec db-password)
 GHCR_TOKEN=$(sec ghcr-token)
 
+# 앱이 기본값 없이 요구하는 값들이다. 하나라도 빠지면 @Value 가 기동을 막는다.
+JWT_SECRET=$(sec jwt-signing-key)
+KAKAO_CLIENT_ID=$(sec kakao-client-id)
+KAKAO_CLIENT_SECRET=$(sec kakao-client-secret)
+KAKAO_APP_ID=$(sec kakao-app-id)
+KAKAO_ADMIN_KEY=$(sec kakao-admin-key)
+
 TOKEN=$(curl -fsS -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')
 INSTANCE_ID=$(curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
 
@@ -34,6 +41,11 @@ CACHE_ENDPOINT=$CACHE_ENDPOINT
 CDN_DOMAIN=$CDN_DOMAIN
 DB_ENDPOINT=$DB_ENDPOINT
 DB_PASSWORD=$DB_PASSWORD
+JWT_SECRET=$JWT_SECRET
+KAKAO_CLIENT_ID=$KAKAO_CLIENT_ID
+KAKAO_CLIENT_SECRET=$KAKAO_CLIENT_SECRET
+KAKAO_APP_ID=$KAKAO_APP_ID
+KAKAO_ADMIN_KEY=$KAKAO_ADMIN_KEY
 APP_INSTANCE_ID=$INSTANCE_ID
 ENV
 chmod 600 /opt/${project}/.env

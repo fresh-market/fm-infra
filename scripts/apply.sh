@@ -68,6 +68,10 @@ ghcr-token|used by instances to pull images from GHCR. needs read:packages
 slack-webhook-critical|Alertmanager critical channel
 slack-webhook-warning|Alertmanager warning channel
 slack-webhook-watchdog|Alertmanager watchdog channel
+kakao-client-id|Kakao OAuth REST API key
+kakao-client-secret|Kakao OAuth client secret
+kakao-app-id|Kakao app id. unlink webhook 이 소유자 확인에 쓴다
+kakao-admin-key|Kakao admin key. 로그아웃과 연결 해제에 쓴다
 SECRETS
 
 # 3. 시크릿 여덟 개가 다 찼는지 본다.
