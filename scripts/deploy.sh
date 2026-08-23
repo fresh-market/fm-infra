@@ -20,6 +20,10 @@ ASG="$PROJECT-app"
 # 신규가 healthy 가 될 때까지 기다리는 상한. 기동이 4~6분이라 여유를 둔다.
 HEALTHY_TIMEOUT=360
 
+# 스모크로 찌를 경로다. 6번은 인스턴스 안에서, 7번은 ALB 를 거쳐 같은 경로를 본다.
+# 호스트는 정하지 않는다. ALB 주소는 재구축마다 바뀌므로 7번에서 그때 조회한다.
+SMOKE_PATH="${SMOKE_PATH:-/v1/products}"
+
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
 tg_arn=$(aws elbv2 describe-target-groups --names "$PROJECT-app" \
@@ -77,15 +81,37 @@ done
 log "   healthy $(healthy_count)"
 
 # 6, 7. 스모크 테스트.
-#      신규 인스턴스에 직접 찌르고 도메인으로도 찌른다.
-#      직접 찌르는 이유는 ALB 를 거치면 어느 인스턴스가 답했는지 알 수 없기 때문이다.
+#      신규 인스턴스를 지목해 찌르고 도메인으로도 찌른다.
+#      지목하는 이유는 ALB 를 거치면 어느 인스턴스가 답했는지 알 수 없기 때문이다.
+#
+#      인스턴스 안에서 돌린다. 이 스크립트는 GitHub Actions 러너에서 도는데
+#      러너는 VPC 밖이라 사설 IP 에 닿지 못하고, 보안 그룹도 8081 을 ALB 와 모니터링에만 연다.
+#      밖에서 찌를 방법이 없으므로 SSM 으로 명령을 보내 localhost 를 찌르게 한다.
+#
+#      8080 을 본다. 8081 readiness 는 ALB 헬스체크가 이미 보고 있어(5번이 그것을 기다린다)
+#      같은 것을 두 번 확인하는 셈이고, 실제로 요청을 받는 포트는 8080 이다.
 new_ids=$(comm -13 <(echo "$old_ids" | tr '\t' '\n' | sort) <(instance_ids | tr '\t' '\n' | sort))
 for id in $new_ids; do
-  ip=$(aws ec2 describe-instances --instance-ids "$id" --region "$REGION" \
-    --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text)
-  log "6. 스모크 (인스턴스 직접) $id $ip"
-  if ! curl -fsS --max-time 5 "http://$ip:8081/actuator/health/readiness" > /dev/null; then
-    log "실패. 신규만 종료하고 구 버전을 유지한다."
+  log "6. 스모크 (인스턴스 안에서) $id"
+  smoke_cmd=$(aws ssm send-command \
+    --instance-ids "$id" \
+    --document-name AWS-RunShellScript \
+    --region "$REGION" \
+    --parameters "commands=[\"curl -fsS --max-time 5 http://localhost:8080$SMOKE_PATH > /dev/null\"]" \
+    --query 'Command.CommandId' --output text)
+
+  smoke_status=Pending
+  for _ in $(seq 1 20); do
+    sleep 3
+    smoke_status=$(aws ssm get-command-invocation --command-id "$smoke_cmd" \
+      --instance-id "$id" --region "$REGION" --query 'Status' --output text 2>/dev/null || echo Pending)
+    case "$smoke_status" in Success|Failed|TimedOut|Cancelled) break ;; esac
+  done
+
+  if [ "$smoke_status" != "Success" ]; then
+    log "실패($smoke_status). 신규만 종료하고 구 버전을 유지한다."
+    aws ssm get-command-invocation --command-id "$smoke_cmd" --instance-id "$id" \
+      --region "$REGION" --query 'StandardErrorContent' --output text 2>/dev/null || true
     aws autoscaling terminate-instance-in-auto-scaling-group --instance-id "$id" \
       --should-decrement-desired-capacity --region "$REGION" > /dev/null
     exit 1
@@ -101,7 +127,6 @@ done
 #
 # 밖에서 정하는 것은 경로뿐이다. 경로는 재구축과 무관하게 안정적이다.
 # 도메인을 붙이면 이 조회가 필요 없어지지만 그때까지는 이쪽이 맞다.
-SMOKE_PATH="${SMOKE_PATH:-/v1/products}"
 alb_dns=$(aws elbv2 describe-load-balancers --names "$PROJECT-alb" \
   --region "$REGION" --query 'LoadBalancers[0].DNSName' --output text)
 log "7. 스모크 (ALB 경유) http://$alb_dns$SMOKE_PATH"
