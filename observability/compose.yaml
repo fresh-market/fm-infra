@@ -85,12 +85,17 @@ services:
     restart: unless-stopped
     command:
       - --mysqld.address=${DB_ENDPOINT}:3306
+      # 사용자 이름은 플래그로만 들어간다.
+      # 익스포터가 환경변수로 읽는 것은 MYSQLD_EXPORTER_PASSWORD 하나뿐이고,
+      # 이름을 받는 경로는 --mysqld.username 과 --config.my-cnf 둘뿐이다.
+      # 전에 MYSQLD_EXPORTER_USER 로 넘겼을 때는 아무도 읽지 않아
+      # "no user specified in section or parent" 로 1분마다 재시작했다.
+      - --mysqld.username=${DB_EXPORTER_USER}
     environment:
-      MYSQLD_EXPORTER_PASSWORD: ${DB_EXPORTER_PASSWORD}
       # 전용 계정을 따로 만들지 않고 마스터로 붙는다.
       # RDS 는 CREATE USER 를 자동으로 해 주지 않아, 전용 계정을 쓰면 재구축마다 손으로 만들어야 한다.
       # 대가는 감시 도구가 DB 전권을 갖는다는 것이다.
-      MYSQLD_EXPORTER_USER: ${DB_EXPORTER_USER}
+      MYSQLD_EXPORTER_PASSWORD: ${DB_EXPORTER_PASSWORD}
 
   # Valkey 가 RESP 호환이라 이름이 redis 여도 그대로 붙는다.
   redis-exporter:
