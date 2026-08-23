@@ -18,10 +18,12 @@
 
 ## 1. 어긋난 값
 
-**네 건 모두 해소했다.** 게이트는 남는 것들을 `fresh-market/.github`의 `.github/llm-verify/known-conflicts.yml`에 `unresolved`로 등록해 두고, 관련 항목을 `CONFLICTING_BASELINE`으로 유보한다.
+**네 건 모두 해소했고 게이트 반영까지 끝났다.** `fresh-market/.github` 의 `.github/llm-verify/known-conflicts.yml` 에서 네 건이 `resolved` 로 바뀌었다 (PR #5, `4ccbc2a`).
+
+게이트는 아직 `unresolved` 인 모순만 `CONFLICTING_BASELINE` 으로 유보한다.
 **한쪽을 골라 판정하지 않는다.** 그건 LLM이 팀의 결정을 대신 내리는 것이다.
 
-정하면 `known-conflicts.yml`에서 해당 항목을 `resolved`로 바꾸거나 지운다.
+새로 모순이 나오면 `known-conflicts.yml` 에 `unresolved` 로 넣고, 정해지면 `resolved` 로 바꾼다.
 
 ### 1.1 readiness 그룹에 `db`를 넣는가 (해소됨)
 
@@ -36,7 +38,7 @@
 
 DB가 잠시 흔들리면 전 인스턴스가 동시에 대상 그룹에서 빠져 서비스가 통째로 끊긴다. 등급이 Critical 이라서 넣는 것이 아니다. **공유 여부로 가른다.**
 
-**남은 일**: `fresh-market/.github` 의 `known-conflicts.yml` 에서 `readiness-include-db` 를 `resolved` 로 바꾼다. 그래야 `REL-5-01`, `REL-5-02`, `INF-4-01` 이 `CONFLICTING_BASELINE` 에서 풀린다.
+**게이트 반영 완료**: `known-conflicts.yml` 의 `readiness-include-db` 가 `resolved` 다. `REL-5-01`, `REL-5-02`, `INF-4-01` 은 `CONFLICTING_BASELINE` 에서 풀렸다.
 
 ### 1.2 ~ 1.4 배포 지표 세 건 (해소됨)
 
@@ -59,7 +61,7 @@ DB가 잠시 흔들리면 전 인스턴스가 동시에 대상 그룹에서 빠�
 
 **함께 고친 것**: `시스템 디자인 종합` 7.3절이 "부하 시험 중 배포 금지" 의 근거를 "용량이 절반이 되므로" 로 적고 있었다. 용량은 100%다. 실제 근거는 혼재 구간이 측정을 오염시킨다는 것이다.
 
-**남은 일**: `known-conflicts.yml` 에서 `deploy-capacity`, `deploy-duration`, `mixed-window` 를 `resolved` 로 바꾼다.
+**게이트 반영 완료**: `known-conflicts.yml` 의 `deploy-capacity`, `deploy-duration`, `mixed-window` 가 모두 `resolved` 다.
 
 ---
 
@@ -165,13 +167,12 @@ springdoc 3.1.0  ->  Boot 4.1.0
 
 | 순위 | 무엇 | 드는 시간 | 막고 있는 것 |
 |------|------|-----------|--------------|
-| 1 | `known-conflicts.yml` 갱신 | 파일 한 줄씩 | 게이트가 네 건을 아직 유보 중 |
-| 2 | 2.2 `max_connections` | 조회 1분 | 풀 크기 계산 전체 |
-| 3 | 2.1 부하 시험 | 시험 1회 | 오토스케일링, 알람 임계값 |
+| 1 | 2.2 `max_connections` | 조회 1분 | 풀 크기 계산 전체 |
+| 2 | 2.1 부하 시험 | 시험 1회 | 오토스케일링, 알람 임계값 |
 
-**1과 2는 하루 안에 끝난다.** 부하 시험만 별도 일정이 필요하다.
+**둘 다 인프라가 떠 있어야 한다.** 파괴된 상태에서는 착수할 수 없다. 재구축하면 1번은 그 자리에서 끝나고 부하 시험만 별도 일정이 필요하다.
 
-1장의 어긋난 값 네 건과 2.4 의 스파이크 두 건(springdoc, QueryDSL)은 모두 해소되어 목록에서 뺐다. 다만 게이트는 `common` 의 `known-conflicts.yml` 을 보므로, 거기를 고치기 전까지 관련 항목이 계속 `CONFLICTING_BASELINE` 으로 유보된다.
+1장의 어긋난 값 네 건과 2.4 의 스파이크 두 건(springdoc, QueryDSL)은 모두 해소되어 목록에서 뺐다. `known-conflicts.yml` 반영도 끝나 게이트가 유보 중인 항목은 없다.
 
 ## 관련 문서
 
