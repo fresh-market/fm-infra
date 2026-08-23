@@ -55,8 +55,13 @@ metrics:
   # EC2 크레딧은 이 경로로만 나온다.
   # node_exporter 는 호스트 안에서 보는 것이라 하이퍼바이저가 관리하는 크레딧 잔량을 알지 못한다.
   # 이것이 없으면 CpuCreditLow 와 CpuCreditCritical 이 발동할 지표를 갖지 못한다.
+  #
+  # range 를 전역값(300)보다 넓게 잡는다. CloudWatch 가 이 지표를 5분마다 내는데
+  # 조회 범위가 같은 5분이면 스크레이프가 빈 구간에 걸려 계열이 사라진다.
+  # 그러면 알람의 for: 5m 이 연속으로 충족되지 못해 영영 발동하지 않는다.
   - aws_namespace: AWS/EC2
     aws_metric_name: CPUCreditBalance
     aws_dimensions: [InstanceId]
     aws_statistics: [Average]
     period_seconds: 300
+    range_seconds: 1800
