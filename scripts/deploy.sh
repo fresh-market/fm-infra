@@ -8,14 +8,15 @@
 # Terraform 이 하지 않는 일을 여기서 한다.
 # SSM 값 갱신, desired 조정, 대상 등록 해제가 그것이다. 경계는 무중단배포 5절에 있다.
 #
-#   ./deploy.sh <커밋 SHA>
+#   ./deploy.sh              fm-backend main 의 최신 커밋을 배포한다
+#   ./deploy.sh <커밋 SHA>   그 커밋을 배포한다. 롤백도 이 형태다
 
 set -euo pipefail
 
 PROJECT="${PROJECT:-freshmarket}"
 REGION="${AWS_REGION:-ap-northeast-2}"
-SHA="${1:?배포할 커밋 SHA 를 넘겨라}"
 ASG="$PROJECT-app"
+BACKEND_REPO="${BACKEND_REPO:-fresh-market/fm-backend}"
 
 # 신규가 healthy 가 될 때까지 기다리는 상한. 기동이 4~6분이라 여유를 둔다.
 HEALTHY_TIMEOUT=360
@@ -25,6 +26,21 @@ HEALTHY_TIMEOUT=360
 SMOKE_PATH="${SMOKE_PATH:-/v1/products}"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+# 인자를 주지 않으면 main 의 최신 커밋을 쓴다.
+#
+# 워크플로는 항상 SHA 를 넘기므로 이 경로는 사람이 손으로 돌릴 때만 탄다.
+# 재구축 직후가 그렇다. 그때 필요한 것은 "지금 main 에 있는 것"이고,
+# 그 값을 사람이 찾아 붙여넣게 하면 옛 커밋을 배포하는 실수가 생긴다.
+#
+# 로컬 클론이 아니라 GitHub 에 묻는다. 손에 있는 클론은 낡았을 수 있다.
+SHA="${1:-}"
+if [ -z "$SHA" ]; then
+  SHA=$(gh api "repos/$BACKEND_REPO/commits/main" --jq .sha 2>/dev/null || true)
+  [ -n "$SHA" ] || die "main 최신 커밋을 찾지 못했다. gh 로그인을 확인하거나 SHA 를 직접 넘겨라"
+  log "인자가 없어 $BACKEND_REPO main 최신을 쓴다"
+fi
 
 tg_arn=$(aws elbv2 describe-target-groups --names "$PROJECT-app" \
   --region "$REGION" --query 'TargetGroups[0].TargetGroupArn' --output text)

@@ -2,6 +2,12 @@
 #
 # 전부 파괴한다. 오래 안 쓸 때 쓴다. stop.sh 로는 절반밖에 못 줄인다.
 #
+#   ./destroy.sh          계정 ID 를 물어본다. 평소에는 이것을 쓴다
+#   ./destroy.sh --yes    묻지 않는다. CI 처럼 터미널이 없을 때만 쓴다
+#
+# 묻는 절차를 없애지 않는다. 되돌릴 수 없는 작업이고, RDS 데이터와 S3 미디어는
+# 스냅샷도 남기지 않고 사라진다. 인자 없이 실행하는 것이 기본이다.
+#
 # terraform destroy 만으로는 되지 않는다. 세 겹이 막는다.
 #   1. lifecycle prevent_destroy   Terraform 이 plan 단계에서 거부한다
 #   2. deletion_protection         AWS 가 API 호출을 거부한다. 끄려면 apply 를 먼저 해야 한다

@@ -98,10 +98,18 @@ if [ -n "$unset_names" ]; then
 fi
 
 # 4. 본 구성. 여기부터 과금이 시작된다.
+#
+# 승인을 묻지 않는다. 1단계 bootstrap 이 이미 -auto-approve 이고,
+# 한쪽만 물으면 15분짜리 작업 중간에 사람을 기다리다 멈춰 선다.
+#
+# 변경 내용을 검토하려면 이 스크립트가 아니라 plan 을 먼저 돌린다.
+#   terraform -chdir=terraform plan -input=false
+#
+# 넘긴 인자는 그대로 전달된다. -target 이나 -var 를 붙일 수 있다.
 log "4. terraform"
 cd "$ROOT/terraform"
 terraform init -input=false -backend-config=backend.hcl > /dev/null
-terraform apply -input=false "$@"
+terraform apply -auto-approve -input=false "$@"
 
 # 5. 엔드포인트를 SSM 에 실어 준다.
 #
