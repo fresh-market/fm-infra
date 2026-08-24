@@ -105,7 +105,11 @@ printf '  VPC(기본 제외) %s\n' "$(aws ec2 describe-vpcs --region "$REGION" -
 printf '  EIP            %s\n' "$(aws ec2 describe-addresses --region "$REGION" --query 'length(Addresses)' --output text)"
 # 시크릿은 남는 것이 정상이다. 0 이면 오히려 잘못됐다.
 # 개수를 적지 않는다. 목록은 apply.sh 2단계가 갖고 있어 늘어나면 이쪽이 먼저 낡는다.
-printf '  SSM 파라미터   %s (시크릿은 남는 것이 정상. Terraform 이 만든 것만 사라진다)\n' "$(aws ssm describe-parameters --region "$REGION" --query 'length(Parameters)' --output text)"
+#
+# length() 로 세지 않는다. CLI 가 응답을 페이지로 나누고 --query 를 페이지마다 적용해,
+# 항목이 한 페이지를 넘으면 "10" 과 "2" 처럼 쪼개진 숫자가 각각 출력된다.
+# 이름을 전부 받아 세면 페이지 수와 무관하다.
+printf '  SSM 파라미터   %s (시크릿은 남는 것이 정상. Terraform 이 만든 것만 사라진다)\n' "$(aws ssm describe-parameters --region "$REGION" --query 'Parameters[].Name' --output text | wc -w | tr -d ' ')"
 printf '  CloudWatch알람 %s\n' "$(aws cloudwatch describe-alarms --region "$REGION" --query 'length(MetricAlarms)' --output text)"
 printf '  로그 그룹      %s\n' "$(aws logs describe-log-groups --region "$REGION" --query 'length(logGroups)' --output text)"
 printf '  Route53 존     %s\n' "$(aws route53 list-hosted-zones --query 'length(HostedZones)' --output text)"
