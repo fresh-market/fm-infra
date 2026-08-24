@@ -11,7 +11,6 @@
 | `scripts/stop.sh` `start.sh` | 이 저장소 | 세션 단위로 껐다 켠다 |
 | `scripts/destroy.sh` | 이 저장소 | 전부 지운다 |
 | `backend-deploy-workflow.yml` | 이 저장소가 원본 | fm-backend 에 복사해서 쓴다 |
-| [`coupon-event.md`](./coupon-event.md) | 이 저장소 | 선착순 이벤트 구간에만 켜는 별도 경로 |
 
 배포 절차가 인프라 결정에서 나오므로 원본을 여기 둔다. backend 워크플로가 `actions/checkout` 으로 받아 쓴다. `llm-verify` 가 형제 저장소를 받아 쓰는 것과 같은 방식이다.
 
