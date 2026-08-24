@@ -134,10 +134,22 @@ curl -fsS --max-time 10 "http://$alb_dns$SMOKE_PATH" > /dev/null
 
 # 9. 3번에서 기록한 구 인스턴스만 종료한다.
 #    desired 를 함께 줄여 원래 대수로 돌아간다.
+#
+#    그 인스턴스가 이미 없을 수 있다. 구 버전이 unhealthy 인 상태로 배포를 시작하면
+#    (재구축 직후 current-sha 가 bootstrap 이라 이미지를 못 받는 경우가 그렇다)
+#    ASG 가 5번 대기 중에 자기 판단으로 먼저 교체해 버린다.
+#
+#    그때 뜬 교체분은 2번에서 current-sha 를 갱신한 뒤에 부팅했으므로 이미 새 이미지다.
+#    지울 이유가 없고, 남은 일은 4번에서 올린 desired 를 되돌리는 것뿐이다.
+#    이것을 실패로 두면 앱이 멀쩡한데 배포만 실패로 보고된다.
 for id in $old_ids; do
   log "9. 구 인스턴스 종료 $id"
   aws autoscaling terminate-instance-in-auto-scaling-group --instance-id "$id" \
-    --should-decrement-desired-capacity --region "$REGION" > /dev/null
+    --should-decrement-desired-capacity --region "$REGION" > /dev/null 2>&1 && continue
+
+  log "   이미 없다. ASG 가 먼저 교체했다. desired 만 $desired 로 되돌린다"
+  aws autoscaling set-desired-capacity --auto-scaling-group-name "$ASG" \
+    --desired-capacity "$desired" --region "$REGION" > /dev/null
 done
 
 # 10. 배치 인스턴스를 교체한다.
