@@ -148,6 +148,11 @@ else
 fi
 
 echo
-log "완료. 다음은 출력값을 GitHub 에 넣는 것이다"
-log "  terraform output github_role_arns   deploy 값을 fm-backend 의 AWS_DEPLOY_ROLE_ARN 변수로"
-log "  terraform output cdn_domain         앱의 cdn.base-url 로"
+log "완료. 남은 것은 둘이다"
+log "  1. 확인 메일의 링크를 누른다. 구독이 다시 만들어져 CloudWatch 알람이 갈 곳이 없다"
+log "  2. 배포를 한 번 돌린다. current-sha 가 bootstrap 이라 앱이 아직 뜨지 않는다"
+log "       ./scripts/deploy.sh <커밋 SHA>     또는 main 에 병합해 워크플로를 돌린다"
+log ""
+log "  CDN 도메인과 ALB 주소는 손댈 것이 없다."
+log "  앞의 것은 방금 5단계가 SSM 에 실었고, 뒤의 것은 deploy.sh 가 그때 조회한다."
+log "  AWS_DEPLOY_ROLE_ARN 은 역할 이름이 결정적이라 최초 1회만 넣으면 된다."
