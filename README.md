@@ -9,6 +9,7 @@ fresh-market 백엔드의 인프라다. Terraform 으로 AWS 를 만들고, `mai
 | 처음 올린다 | `./scripts/apply.sh`. 근거는 [`docs/deploy/README.md`](docs/deploy/README.md) |
 | 껐다 켠다, 지운다 | 같은 문서의 "세션 단위로", "전부 지운다" |
 | 배포가 어떻게 도는지 | 같은 문서 |
+| 선착순 이벤트를 연다 | [`docs/deploy/coupon-event.md`](docs/deploy/coupon-event.md) |
 | 왜 이렇게 정했는지 | [`docs/system-design/`](docs/system-design/) |
 | 코드가 결정과 맞는지 본다 | [`docs/infra-review/`](docs/infra-review/) |
 
