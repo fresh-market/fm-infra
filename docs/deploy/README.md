@@ -58,6 +58,25 @@
 
 Terraform 이 값이나 desired 를 건드리면 배포가 깨진다. 그래서 `ignore_changes` 를 걸어 두었다.
 
+## 처음부터 다시 세운다
+
+세 줄이다. 인자를 붙이지 않는다.
+
+```bash
+./scripts/destroy.sh      # 계정 ID 를 입력하면 진행된다. 15분쯤
+./scripts/apply.sh        # 15~25분. RDS 와 캐시 생성이 대부분이다
+./scripts/deploy.sh       # main 최신을 배포한다. 6~8분
+```
+
+중간에 **확인 메일의 링크를 눌러야 한다.** SNS 구독이 파괴되고 다시 만들어지므로 그렇고, AWS 가 사람 확인을 요구해 자동화할 수 없다. 재구축마다 남는 유일한 수동 작업이다.
+
+`apply.sh` 는 오래 걸린다. **중간에 끊으면 상태 잠금과 고아 리소스가 남는다.** 그때는 이렇게 푼다.
+
+```bash
+terraform -chdir=terraform force-unlock -force <잠금ID>     # 먼저 terraform 프로세스가 죽었는지 확인한다
+terraform -chdir=terraform import <주소> <실제ID>           # AWS 에는 있는데 상태에 없는 것
+```
+
 ## 처음 적용할 때
 
 ```bash
@@ -146,7 +165,7 @@ CDN 도메인과 ALB 주소는 재구축마다 바뀌지만 **손댈 것이 없�
 
 ```bash
 ./scripts/destroy.sh            # 계정 ID 를 직접 입력해야 진행된다
-./scripts/destroy.sh --yes      # 확인을 건너뛴다
+./scripts/destroy.sh --yes      # 확인을 건너뛴다. 터미널이 없을 때만 쓴다
 ```
 
 `terraform destroy` 만으로는 되지 않는다. 세 겹이 막는다.
