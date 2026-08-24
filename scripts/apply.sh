@@ -74,10 +74,17 @@ kakao-app-id|Kakao app id. unlink webhook 이 소유자 확인에 쓴다
 kakao-admin-key|Kakao admin key. 로그아웃과 연결 해제에 쓴다
 SECRETS
 
-# 3. 시크릿 여덟 개가 다 찼는지 본다.
+# 3. 시크릿이 다 찼는지 본다.
+#
+# SecureString 만 본다. 같은 경로에 Terraform 이 만드는 String 파라미터가 섞여 있는데
+# (db-endpoint, cache-endpoint, cdn-domain, current-sha) 그것들은 일부러 unset 으로 태어나
+# 5단계와 배포 스크립트가 채운다. 사람이 넣을 값이 아니다.
+#
+# 경로 전체를 보면 4단계가 한 번이라도 돈 뒤에는 그 셋이 걸려 여기서 멈춘다.
+# 그러면 이 스크립트가 멱등하지 않게 되어 중단된 apply 를 다시 이어 붙일 수 없다.
 log "3. 시크릿 확인"
 unset_names=$(aws ssm get-parameters-by-path --path "/$PROJECT" --region "$REGION" \
-  --with-decryption --query 'Parameters[?Value==`unset`].Name' --output text)
+  --with-decryption --query 'Parameters[?Value==`unset` && Type==`SecureString`].Name' --output text)
 
 if [ -n "$unset_names" ]; then
   printf '아직 값이 없는 시크릿이 있다.\n\n'
