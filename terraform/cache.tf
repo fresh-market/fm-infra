@@ -6,12 +6,14 @@
  * 단일 노드라도 replication_group 으로 만든다 (INF-36).
  * 복제본 추가는 replication group 에만 되고, 나중에 바꾸려면 이관이 필요하다.
  * 지금 정하면 비용 차이가 0 이다.
+ *
+ * 그 판단이 실제로 값을 했다. 복제본을 붙일 때 이관도 재생성도 없었다.
  */
 
-# AZ-a 만 등록하면 나중에 Multi-AZ 를 켤 때 서브넷 그룹부터 고쳐야 한다.
+# AZ-a 만 등록했다면 Multi-AZ 를 켤 때 서브넷 그룹부터 고쳐야 했다.
 resource "aws_elasticache_subnet_group" "main" {
   name        = "${var.project}-cache"
-  description = "private subnets in 2 AZ. room for a replica later"
+  description = "private subnets in 2 AZ. primary in a, replica in c"
   subnet_ids  = [for s in aws_subnet.private : s.id]
 }
 
@@ -35,15 +37,22 @@ resource "aws_elasticache_replication_group" "main" {
   port           = 6379
 
   /*
-   * 평상시 노드 1대다 (INF-04).
-   * 캐시가 판정 주체가 되는 구간에만 복제본을 붙이고 Multi-AZ 를 켠다.
+   * 프라이머리 AZ-a, 복제본 AZ-c 다 (INF-37). 단일 노드 전제였던 INF-04 를 대체한 결정이다.
+   *
+   * 이관 없이 여기까지 온 것은 노드가 하나일 때부터 replication group 으로 만들어 뒀기 때문이다 (INF-36).
+   * aws_elasticache_cluster 로 시작했다면 이 변경이 재생성이었다.
+   *
+   * automatic_failover 와 multi_az 는 짝이다. multi_az 만 켜면 AWS 가 거절한다.
    */
-  num_cache_clusters         = 1
-  automatic_failover_enabled = false
-  multi_az_enabled           = false
+  num_cache_clusters         = 2
+  automatic_failover_enabled = true
+  multi_az_enabled           = true
 
-  # 복제본을 붙일 때 이 값이 AZ-c 로 늘어난다.
-  preferred_cache_cluster_azs = [var.azs["a"]]
+  /*
+   * 순서가 의미를 갖는다. 첫 원소가 프라이머리다.
+   * 서브넷 그룹에 두 AZ 를 미리 등록해 둔 덕에 여기만 늘리면 된다.
+   */
+  preferred_cache_cluster_azs = [var.azs["a"], var.azs["c"]]
 
   subnet_group_name    = aws_elasticache_subnet_group.main.name
   security_group_ids   = [aws_security_group.cache.id]
