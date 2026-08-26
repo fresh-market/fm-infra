@@ -33,11 +33,24 @@ for name in critical warning watchdog; do
   chmod 600 "$f"
 done
 
+# 도메인이 없으면 unset 이다. 그때는 SSM 포트 포워딩으로 보므로 localhost 가 맞는 값이다.
+#
+# 인증 프록시도 같이 갈린다. ALB 를 안 거치면 X-Amzn-Oidc-Identity 헤더가 없어서,
+# 켜 둔 채로 포트 포워딩으로 붙으면 아무도 로그인하지 못한다.
+GRAFANA_ROOT_URL=$(get grafana-root-url)
+GRAFANA_AUTH_PROXY_ENABLED=true
+if [ "$GRAFANA_ROOT_URL" = "unset" ]; then
+  GRAFANA_ROOT_URL=http://localhost:3000/
+  GRAFANA_AUTH_PROXY_ENABLED=false
+fi
+
 install -d -m 0755 "$D"
 cat > "$D/.env" <<ENV
 DB_ENDPOINT=$(get db-endpoint)
 CACHE_ENDPOINT=$(get cache-endpoint)
 DB_EXPORTER_PASSWORD=$(sec db-exporter-password)
 DB_EXPORTER_USER=${db_username}
+GRAFANA_ROOT_URL=$GRAFANA_ROOT_URL
+GRAFANA_AUTH_PROXY_ENABLED=$GRAFANA_AUTH_PROXY_ENABLED
 ENV
 chmod 600 "$D/.env"

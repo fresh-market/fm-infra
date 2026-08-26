@@ -63,3 +63,12 @@ output "cdn_domain" {
   description = "앱의 cdn.base-url 에 넣을 값"
   value       = aws_cloudfront_distribution.media.domain_name
 }
+
+/*
+ * 팀원에게 알려줄 주소다.
+ * 비어 있으면 아직 SSM 포트 포워딩으로만 볼 수 있다는 뜻이다.
+ */
+output "grafana_url" {
+  description = "Grafana 접속 주소. 도메인과 OIDC 가 설정되어야 값이 생긴다"
+  value       = local.has_grafana ? "https://${local.grafana_host}/" : ""
+}

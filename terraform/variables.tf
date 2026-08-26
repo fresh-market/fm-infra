@@ -87,6 +87,26 @@ variable "domain_name" {
   default     = ""
 }
 
+# Grafana 를 붙일 서브도메인. 인증서 SAN 과 호스트 헤더 조건이 이 값을 쓴다.
+variable "grafana_subdomain" {
+  description = "Grafana 서브도메인 라벨. 예: grafana"
+  type        = string
+  default     = "grafana"
+}
+
+/*
+ * 비어 있으면 Grafana 를 ALB 에 붙이지 않는다.
+ * 값이 있어도 domain_name 이 비어 있으면 붙이지 않는다. OIDC 인증은 HTTPS 리스너에서만 되기 때문이다.
+ *
+ * 클라이언트 ID 는 시크릿이 아니다. OAuth 흐름에서 브라우저에 그대로 드러난다.
+ * 시크릿은 SSM 의 grafana-oidc-client-secret 에서 읽는다.
+ */
+variable "grafana_oidc_client_id" {
+  description = "Google OAuth 클라이언트 ID. 비우면 Grafana 를 노출하지 않는다"
+  type        = string
+  default     = ""
+}
+
 /*
  * 역할별 인스턴스 타입. 기술 스택 확정 문서 2.6절.
  *

@@ -157,3 +157,108 @@ resource "aws_lb_listener_rule" "liveness" {
     }
   }
 }
+
+/*
+ * 여기부터 Grafana 노출이다. domain_name 과 grafana_oidc_client_id 가 둘 다 채워질 때만 생긴다.
+ *
+ * 팀원이 브라우저로 지표를 보게 하는 것이 목적이다.
+ * Grafana 의 3000 은 인터넷에 열지 않는다. 여는 것은 ALB 이고 인증도 ALB 가 끝낸다.
+ */
+
+resource "aws_lb_target_group" "grafana" {
+  count = local.has_grafana ? 1 : 0
+
+  name        = "${var.project}-grafana"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "instance"
+
+  /*
+   * /api/health 는 인증 없이 200 을 준다.
+   * 로그인 화면이 뜨는 / 로 검사하면 302 가 돌아와 대상이 계속 unhealthy 로 잡힌다.
+   */
+  health_check {
+    path                = "/api/health"
+    port                = "3000"
+    protocol            = "HTTP"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    matcher             = "200"
+  }
+
+  tags = {
+    Name = "${var.project}-grafana"
+  }
+}
+
+# 모니터링은 ASG 밖 고정 인스턴스라 대상을 직접 붙인다.
+resource "aws_lb_target_group_attachment" "grafana" {
+  count = local.has_grafana ? 1 : 0
+
+  target_group_arn = aws_lb_target_group.grafana[0].arn
+  target_id        = aws_instance.monitoring.id
+  port             = 3000
+}
+
+/*
+ * ALB 가 Google 로 인증을 끝낸 뒤에만 뒤로 넘긴다 (authenticate-oidc).
+ * 이 액션은 HTTPS 리스너에서만 동작한다. has_grafana 가 도메인을 전제로 삼는 이유가 이것이다.
+ *
+ * priority 는 liveness(10) 다음이다. 호스트 헤더가 갈라 주므로 서로 겹치지 않는다.
+ *
+ * client_secret 은 상태 파일에 평문으로 남는다. ALB 가 인라인 값만 받아서 피할 방법이 없다.
+ * 상태 버킷이 비공개이고 SSE 와 버저닝이 켜져 있다는 것이 이것을 받아들이는 근거다.
+ */
+resource "aws_lb_listener_rule" "grafana" {
+  count = local.has_grafana ? 1 : 0
+
+  listener_arn = aws_lb_listener.https[0].arn
+  priority     = 20
+
+  action {
+    type = "authenticate-oidc"
+
+    authenticate_oidc {
+      issuer                 = "https://accounts.google.com"
+      authorization_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
+      token_endpoint         = "https://oauth2.googleapis.com/token"
+      user_info_endpoint     = "https://openidconnect.googleapis.com/v1/userinfo"
+
+      client_id     = var.grafana_oidc_client_id
+      client_secret = data.aws_ssm_parameter.grafana_oidc_client_secret[0].value
+
+      # 이메일만 받는다. Grafana 가 사용자를 만들 때 쓰는 값이 그것뿐이다.
+      scope = "openid email"
+
+      # 12시간마다 다시 로그인한다. 하루 한 번꼴이라 매일 아침에 걸린다.
+      session_timeout            = 43200
+      on_unauthenticated_request = "authenticate"
+    }
+  }
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.grafana[0].arn
+  }
+
+  condition {
+    host_header {
+      values = [local.grafana_host]
+    }
+  }
+}
+
+/*
+ * 시크릿은 apply.sh 가 만드는 8개 목록에 넣지 않았다.
+ * 넣으면 그 스크립트 3단계가 값이 빌 때마다 apply 를 막아, Grafana 를 안 쓰는 동안에도 구축이 멈춘다.
+ * grafana_oidc_client_id 를 채우기로 한 사람이 그때 이 파라미터도 함께 넣는다. README 에 명령이 있다.
+ */
+data "aws_ssm_parameter" "grafana_oidc_client_secret" {
+  count = local.has_grafana ? 1 : 0
+
+  name            = "${local.ssm_prefix}/grafana-oidc-client-secret"
+  with_decryption = true
+}

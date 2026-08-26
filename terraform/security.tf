@@ -174,7 +174,7 @@ resource "aws_vpc_security_group_ingress_rule" "exporters_from_mon" {
 }
 
 /*
- * SG-mon 의 유일한 인바운드다.
+ * SG-mon 의 인바운드 둘 중 하나다.
  * Alloy 가 각 인스턴스에서 로그를 읽어 Loki 로 밀어 넣는다. 방향이 다른 것들과 반대다.
  * 스크랩은 모니터링이 나가는 연결이지만 로그는 들어오는 연결이다.
  */
@@ -190,6 +190,22 @@ resource "aws_vpc_security_group_ingress_rule" "loki_from_hosts" {
   to_port                      = 3100
   ip_protocol                  = "tcp"
   description                  = "Alloy log push"
+}
+
+/*
+ * Grafana 를 ALB 뒤에 붙일 때만 열린다.
+ * 출처가 SG-alb 뿐이라는 것이, Grafana 가 X-Amzn-Oidc-Identity 헤더를 믿어도 되는 근거다.
+ * 다른 경로로 3000 에 닿을 수 없으니 헤더를 위조해 넣을 상대가 없다.
+ */
+resource "aws_vpc_security_group_ingress_rule" "grafana_from_alb" {
+  count = local.has_grafana ? 1 : 0
+
+  security_group_id            = aws_security_group.mon.id
+  referenced_security_group_id = aws_security_group.alb.id
+  from_port                    = 3000
+  to_port                      = 3000
+  ip_protocol                  = "tcp"
+  description                  = "Grafana via ALB"
 }
 
 # 배치가 DB 에 못 붙으면 아무 일도 못 한다.

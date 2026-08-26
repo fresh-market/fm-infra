@@ -82,3 +82,18 @@ resource "aws_ssm_parameter" "loki_endpoint" {
   type        = "String"
   value       = aws_instance.monitoring.private_ip
 }
+
+/*
+ * Grafana 가 자기 주소를 아는 경로다.
+ * ROOT_URL 이 틀리면 로그인 후 리디렉션과 패널 공유 링크가 localhost 로 간다.
+ *
+ * 값을 인스턴스에 박지 않고 SSM 을 거치는 이유는 loki-endpoint 와 같다.
+ * 박으면 도메인을 붙이거나 떼는 것이 user-data 재렌더링과 인스턴스 재생성이 된다.
+ * 여기를 거치면 refresh-monitoring-env 가 읽어 .env 를 다시 쓰고 컨테이너만 재시작하면 된다.
+ */
+resource "aws_ssm_parameter" "grafana_root_url" {
+  name        = "${local.ssm_prefix}/grafana-root-url"
+  description = "Grafana external URL. unset means SSM port forwarding only"
+  type        = "String"
+  value       = local.has_grafana ? "https://${local.grafana_host}/" : "unset"
+}

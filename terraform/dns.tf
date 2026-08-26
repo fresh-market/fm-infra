@@ -11,6 +11,15 @@ locals {
 
   # api.example.com 에서 example.com 을 뽑는다
   zone_name = local.has_domain ? join(".", slice(split(".", var.domain_name), 1, length(split(".", var.domain_name)))) : ""
+
+  grafana_host = local.has_domain ? "${var.grafana_subdomain}.${local.zone_name}" : ""
+
+  /*
+   * Grafana 를 ALB 에 붙이는 조건이다.
+   * OIDC 인증 액션은 HTTPS 리스너에만 붙일 수 있어 도메인이 전제다.
+   * 클라이언트 ID 가 없으면 인증 없이 노출하게 되므로 그때도 붙이지 않는다.
+   */
+  has_grafana = local.has_domain && var.grafana_oidc_client_id != ""
 }
 
 resource "aws_route53_zone" "main" {
@@ -24,11 +33,17 @@ resource "aws_route53_zone" "main" {
   }
 }
 
+/*
+ * SAN 은 has_grafana 가 아니라 has_domain 을 따른다.
+ * SAN 을 바꾸면 인증서가 새로 발급되는데, Grafana 를 켜고 끌 때마다 그것이 일어나면 안 된다.
+ * 쓰지 않는 SAN 이 하나 남는 비용은 0 이다.
+ */
 resource "aws_acm_certificate" "main" {
   count = local.has_domain ? 1 : 0
 
-  domain_name       = var.domain_name
-  validation_method = "DNS"
+  domain_name               = var.domain_name
+  subject_alternative_names = [local.grafana_host]
+  validation_method         = "DNS"
 
   # 인증서를 갈아끼울 때 리스너가 옛 인증서를 참조한 채로 남지 않게 한다.
   lifecycle {
@@ -72,6 +87,25 @@ resource "aws_route53_record" "alb" {
     name                   = aws_lb.main.dns_name
     zone_id                = aws_lb.main.zone_id
     evaluate_target_health = true
+  }
+}
+
+/*
+ * 같은 ALB 를 가리킨다. 호스트 헤더로 리스너 규칙이 갈라 준다.
+ * evaluate_target_health 를 끈다. 켜면 앱 대상 그룹의 건강까지 반영되어,
+ * 앱이 죽었을 때 Grafana 이름도 함께 응답하지 않는다. 장애 때 가장 필요한 화면이 그때 사라진다.
+ */
+resource "aws_route53_record" "grafana" {
+  count = local.has_grafana ? 1 : 0
+
+  zone_id = aws_route53_zone.main[0].zone_id
+  name    = local.grafana_host
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = false
   }
 }
 

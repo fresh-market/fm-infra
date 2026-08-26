@@ -20,3 +20,7 @@ allowed_account_ids = ["000000000000"]
 # critical 알림을 받을 이메일. 비우면 이메일 구독을 만들지 않는다.
 # CloudWatch 알람은 SNS 로만 가므로, 이것과 Chatbot 둘 다 없으면 그 알람들이 갈 곳이 없다.
 alert_email = ""
+
+# Grafana 를 팀원에게 열 때 채운다. domain_name 이 함께 있어야 동작한다.
+# 값을 넣기 전에 SSM 에 시크릿부터 넣는다. observability/README.md 에 순서가 있다.
+grafana_oidc_client_id = ""

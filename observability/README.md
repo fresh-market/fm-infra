@@ -53,13 +53,117 @@ Alloy 는 로그를 **밀어 넣는다**. 지표 스크랩과 방향이 반대�
 
 ## 화면 보는 법
 
-포트를 밖으로 열지 않는다. SSM 포트 포워딩으로 본다.
+경로가 둘이다. 도메인이 없으면 첫 번째뿐이다.
+
+### SSM 포트 포워딩 (도메인 없을 때)
+
+Grafana 의 3000 은 인터넷에 열지 않는다.
 
 ```bash
 aws ssm start-session --target <instance-id> \
   --document-name AWS-StartPortForwardingSession \
   --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}'
 ```
+
+인스턴스 ID 는 태그로 찾는다.
+
+```bash
+aws ec2 describe-instances \
+  --filters "Name=tag:Role,Values=monitoring" "Name=instance-state-name,Values=running" \
+  --query 'Reservations[].Instances[].InstanceId' --output text
+```
+
+Prometheus(9090)나 Alertmanager(9093)도 `portNumber` 만 바꾸면 같은 방식으로 본다.
+
+### 브라우저 (도메인이 있을 때)
+
+`https://grafana.<도메인>` 이다. ALB 가 Google 로 인증을 끝낸 뒤에만 뒤로 넘긴다.
+Grafana 의 3000 은 여전히 안 열린다. `SG-mon` 에 ALB 출처로만 규칙이 하나 생길 뿐이다.
+
+팀원은 Grafana 계정을 따로 만들지 않는다. ALB 가 넘겨준 이메일로 Viewer 가 자동 생성된다.
+
+여는 순서는 이렇다.
+
+```bash
+# 1. Google Cloud Console 에서 OAuth 2.0 클라이언트 ID 를 만든다 (유형: 웹 애플리케이션).
+#    승인된 리디렉션 URI 에 아래를 넣는다. ALB 가 고정으로 쓰는 경로다.
+#      https://grafana.<도메인>/oauth2/idpresponse
+
+# 2. 클라이언트 보안 비밀번호를 SSM 에 넣는다.
+#    apply.sh 의 시크릿 목록에는 없다. 넣으면 Grafana 를 안 쓰는 동안에도 apply 가 막힌다.
+aws ssm put-parameter --name /freshmarket/grafana-oidc-client-secret \
+  --type SecureString --value '<client secret>' --region ap-northeast-2
+
+# 3. tfvars 에 클라이언트 ID 와 도메인을 채우고 apply 한다.
+#      domain_name            = "api.example.com"
+#      grafana_oidc_client_id = "....apps.googleusercontent.com"
+
+# 4. 모니터링 인스턴스에서 .env 를 다시 만들고 Grafana 를 재시작한다.
+#    ROOT_URL 과 인증 프록시 설정이 여기서 들어간다.
+sudo /usr/local/bin/freshmarket-refresh-monitoring-env
+cd /opt/freshmarket/infra/observability && docker compose up -d grafana
+```
+
+`terraform output grafana_url` 이 주소를 알려준다. 비어 있으면 아직 1~3 단계가 안 끝난 것이다.
+
+#### 이미 떠 있는 모니터링 인스턴스에는 4단계 전에 한 걸음이 더 있다
+
+`refresh-monitoring-env` 는 user-data 가 최초 부팅에 한 번만 설치한다.
+모니터링은 EBS 에 관측 데이터가 있어 재생성하지 않으므로 (`INF-24`), 템플릿을 고쳐도 떠 있는 인스턴스의 스크립트는 옛 것이다.
+`apply` 는 성공하는데 `.env` 에 `GRAFANA_` 두 줄이 안 들어가고, Grafana 는 인증 프록시가 꺼진 채로 뜬다.
+막히지는 않고 팀원이 Grafana 로그인 화면을 보게 되는 형태로 어긋난다.
+
+박스에서 스크립트를 다시 깐다. 템플릿이 쓰는 값은 셋뿐이라 치환으로 끝난다.
+
+```bash
+cd /opt/freshmarket/infra && git pull --ff-only
+sed -e 's/${project}/freshmarket/g' \
+    -e 's/${region}/ap-northeast-2/g' \
+    -e 's/${db_username}/freshmarket/g' \
+    terraform/templates/refresh-monitoring-env.sh.tftpl \
+  | sudo tee /usr/local/bin/freshmarket-refresh-monitoring-env > /dev/null
+sudo chmod 755 /usr/local/bin/freshmarket-refresh-monitoring-env
+```
+
+이 템플릿을 고칠 때마다 같은 일이 필요하다. 재구축으로 인스턴스가 새로 뜨는 경우에는 필요 없다.
+
+## 대시보드
+
+`grafana/dashboards/*.json` 이 Git 에 있고 프로비저닝으로 올라간다.
+화면에서 고친 것은 저장되지 않는다 (`allowUiUpdates: false`). 데이터소스를 코드로 넣은 것과 같은 이유다 (`OPS-2-18`).
+
+| 파일 | 화면 | 무엇을 보나 |
+|---|---|---|
+| `01-overview.json` | 01 서비스 개요 | 요청률, 5xx 비율, 응답시간 분위수, ALB 지표 |
+| `02-hosts.json` | 02 호스트 | CPU 크레딧, CPU, 메모리, 디스크, 컨테이너 재기동 |
+| `03-app-jvm.json` | 03 앱과 JVM | 힙, GC, HikariCP, 톰캣 스레드, 배치 마지막 성공 |
+| `04-data-stores.json` | 04 데이터 저장소 | MySQL 커넥션과 쿼리, RDS 메모리, 캐시 적중률 |
+
+**임계값이 있는 패널에는 선을 그어 두었다.** `rules.yml` 의 값과 같은 값이다.
+CPU 크레딧 173 과 58, 디스크 80%, Hikari 대기 9, 컨테이너 재기동 3회, 배치 1800초다.
+알람이 울리기 전에 어디쯤 와 있는지 화면에서 먼저 보라고 맞춰 둔 것이다.
+
+**`(미정)` 을 채울 값을 읽는 자리도 표시해 두었다.** p99 기준선, 톰캣 스레드 사용률,
+RDS 여유 메모리가 그것이고, 해당 패널 설명에 적어 두었다. 부하 시험 뒤 이 화면에서 읽어 `rules.yml` 에 넣는다.
+
+고치는 절차는 설정 파일과 같다.
+
+```bash
+cd /opt/freshmarket/infra && git pull --ff-only
+# 프로비저닝이 30초마다 파일을 다시 읽어 재시작이 필요 없다.
+```
+
+### CloudWatch 지표 이름 확인
+
+`cloudwatch_exporter` 는 CloudWatch 이름을 자기 규칙으로 바꿔 내보낸다.
+`aws_ec2_cpucredit_balance_average` 는 `rules.yml` 이 쓰고 있어 확인된 이름이지만,
+ALB 와 RDS 쪽 이름은 첫 기동 때 한 번 맞춰 보는 것이 빠르다.
+
+```bash
+curl -s localhost:9106/metrics | grep -o '^aws_[a-z_0-9]*' | sort -u
+```
+
+다르면 `01-overview.json` 과 `04-data-stores.json` 의 해당 패널 `expr` 을 고친다.
 
 ## 아직 채우지 못한 임계값
 
