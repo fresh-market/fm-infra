@@ -31,11 +31,25 @@ services:
       - "3000:3000"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     environment:
-      # 포트를 밖으로 열지 않고 SSM 포트 포워딩으로 본다. 익명 접근을 켜지 않는다.
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # 도메인이 없으면 SSM 포트 포워딩으로 보므로 localhost 가 맞다. 값은 refresh-monitoring-env 가 .env 에 넣는다.
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000/}
+      # ALB 가 Google 로 인증을 끝내고 X-Amzn-Oidc-Identity 헤더에 이메일을 실어 보낸다.
+      # 이 헤더를 믿어도 되는 근거는 SG-mon 의 3000 인바운드가 SG-alb 출처만 허용한다는 것이다.
+      # 다른 경로로는 이 포트에 닿을 수 없어 헤더를 위조해 넣을 상대가 없다.
+      #
+      # 도메인이 없는 동안에는 GRAFANA_AUTH_PROXY_ENABLED 가 false 라 평소 로그인 화면이 그대로 뜬다.
+      GF_AUTH_PROXY_ENABLED: ${GRAFANA_AUTH_PROXY_ENABLED:-false}
+      GF_AUTH_PROXY_HEADER_NAME: X-Amzn-Oidc-Identity
+      GF_AUTH_PROXY_HEADER_PROPERTY: email
+      GF_AUTH_PROXY_AUTO_SIGN_UP: "true"
+      GF_AUTH_PROXY_SYNC_TTL: "60"
+      # 팀원은 보기만 한다. 대시보드는 Git 이 갖고 화면에서 고칠 수 없다.
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
 
   loki:
     image: grafana/loki:3.7.4
