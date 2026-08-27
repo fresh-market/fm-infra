@@ -1,0 +1,17 @@
+# Grafana 앞의 TLS 종단이다. 도메인을 사기 전까지 쓰는 임시 구성이다.
+#
+# 인증서는 Let's Encrypt 에서 자동으로 받고 만료 전에 자동으로 갱신한다.
+# 발급받은 것은 caddy-data 볼륨에 남는다. 이 볼륨을 지우면 재기동마다 다시 발급받게 되고,
+# Let's Encrypt 는 도메인당 주 5회 제한이 있어 금방 막힌다.
+#
+# basic_auth 가 인증 전 요청을 여기서 끊는다.
+# Grafana 의 로그인 이전 단계 취약점이 나와도 이 문을 통과하지 못한다.
+# 해시는 SSM caddy-basic-auth-hash 에서 refresh-monitoring-env 를 거쳐 온다.
+
+{$DUCKDNS_HOSTNAME} {
+	basic_auth {
+		team {$CADDY_BASIC_AUTH_HASH}
+	}
+
+	reverse_proxy grafana:3000
+}

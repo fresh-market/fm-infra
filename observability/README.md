@@ -75,6 +75,65 @@ aws ec2 describe-instances \
 
 Prometheus(9090)나 Alertmanager(9093)도 `portNumber` 만 바꾸면 같은 방식으로 본다.
 
+### 브라우저 (도메인 없이, 임시)
+
+DuckDNS 이름 하나로 진짜 HTTPS 를 쓴다. ALB 와 ACM 을 거치지 않고 Caddy 가 직접 인증서를 받는다.
+도메인을 사기 전까지의 임시 구성이다.
+
+```
+팀원 -> https://<이름>.duckdns.org -> Caddy (basic_auth) -> grafana:3000
+```
+
+`basic_auth` 가 인증 전 요청을 끊는다. Grafana 의 로그인 이전 단계 취약점이 나와도 이 문을 통과하지 못한다.
+Grafana 의 3000 은 루프백에만 묶여 있어 밖에서 직접 닿을 수 없다.
+
+**여는 순서**
+
+```bash
+# 1. duckdns.org 에서 서브도메인을 만든다. IP 는 3단계 뒤에 채운다.
+
+# 2. basic auth 해시를 만들고 시크릿 둘을 넣는다.
+docker run --rm caddy caddy hash-password --plaintext '<팀 공용 비밀번호>'
+
+aws ssm put-parameter --name /freshmarket/caddy-basic-auth-hash \
+  --type SecureString --value '<위 해시>' --region ap-northeast-2
+aws ssm put-parameter --name /freshmarket/grafana-admin-password \
+  --type SecureString --value '<Grafana admin 비밀번호>' --region ap-northeast-2
+
+# 3. tfvars 에 호스트명을 넣고 apply 한다. EIP 가 생긴다.
+#      duckdns_hostname = "<이름>.duckdns.org"
+terraform apply
+terraform output monitoring_public_ip
+
+# 4. 그 IP 를 DuckDNS 화면의 current ip 에 넣고 update 를 누른다.
+#    여기가 인스턴스 IP 다. 접속하는 사람의 IP 가 아니다.
+dig +short A <이름>.duckdns.org      # 값이 3단계 IP 와 같아야 한다
+
+# 5. 박스에서 스택을 올린다.
+cd /opt/freshmarket/infra && git pull --ff-only
+sudo /usr/local/bin/freshmarket-refresh-monitoring-env
+cd observability && docker compose up -d
+```
+
+4번의 DNS 가 먼저 맞아야 5번에서 인증서가 발급된다. 순서를 지킨다.
+
+**시크릿 둘은 필수다.** 하나라도 비면 `refresh-monitoring-env` 가 멈춘다.
+인증 없이 인터넷에 열리는 상태를 만들지 않기 위해서다.
+
+**인증서 볼륨을 지우지 않는다.** `caddy-data` 에 발급받은 인증서가 있다.
+지우면 재기동마다 새로 받게 되고 Let's Encrypt 는 도메인당 주 5회 제한이 있어 금방 막힌다.
+
+```bash
+docker compose logs caddy | tail -20      # 발급이 됐는지 확인
+```
+
+**80 은 전체 공개다.** Let's Encrypt 검증이 전 세계 여러 IP 에서 와서 좁힐 수 없다.
+챌린지 응답과 443 리다이렉트만 하고 Grafana 로 넘기지 않는다.
+443 은 `grafana_https_allowed_cidrs` 로 좁힐 수 있다. 기본값은 전체 공개이며 `basic_auth` 가 문을 지킨다.
+
+**도메인이 생기면** `duckdns_hostname` 을 비우고 `domain_name` 과 `grafana_oidc_client_id` 를 채운다.
+Caddy 와 EIP 가 사라지고 ALB 경로로 넘어간다. 그때는 Google 로그인이라 공용 비밀번호가 필요 없다.
+
 ### 브라우저 (도메인이 있을 때)
 
 `https://grafana.<도메인>` 이다. ALB 가 Google 로 인증을 끝낸 뒤에만 뒤로 넘긴다.

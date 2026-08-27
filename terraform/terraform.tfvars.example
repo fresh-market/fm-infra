@@ -24,3 +24,8 @@ alert_email = ""
 # Grafana 를 팀원에게 열 때 채운다. domain_name 이 함께 있어야 동작한다.
 # 값을 넣기 전에 SSM 에 시크릿부터 넣는다. observability/README.md 에 순서가 있다.
 grafana_oidc_client_id = ""
+
+# 도메인을 사기 전까지 쓰는 임시 경로다. 비우면 아무것도 만들지 않는다.
+# 채우면 모니터링 인스턴스에 EIP 가 붙고 Caddy 가 Let's Encrypt 인증서를 받는다.
+# domain_name 이 생기면 이 값을 비운다.
+duckdns_hostname = ""

@@ -69,6 +69,12 @@ output "cdn_domain" {
  * 비어 있으면 아직 SSM 포트 포워딩으로만 볼 수 있다는 뜻이다.
  */
 output "grafana_url" {
-  description = "Grafana 접속 주소. 도메인과 OIDC 가 설정되어야 값이 생긴다"
-  value       = local.has_grafana ? "https://${local.grafana_host}/" : ""
+  description = "Grafana 접속 주소. 비어 있으면 SSM 포트 포워딩으로만 볼 수 있다"
+  value       = local.grafana_root_url == "unset" ? "" : local.grafana_root_url
+}
+
+# DuckDNS 화면의 current ip 에 넣을 값이다. 이 주소로 인증서가 발급된다.
+output "monitoring_public_ip" {
+  description = "모니터링 인스턴스 고정 IP. DuckDNS 를 쓸 때만 값이 생긴다"
+  value       = local.has_duckdns ? aws_eip.monitoring[0].public_ip : ""
 }

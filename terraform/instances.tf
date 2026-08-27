@@ -120,3 +120,21 @@ resource "aws_instance" "load_test" {
     Role = "load-test"
   }
 }
+
+/*
+ * DuckDNS 는 A 레코드만 받는다. stop.sh 로 인스턴스를 내렸다 올리면 공인 IP 가 바뀌므로
+ * 그때마다 DuckDNS 를 손으로 갱신해야 한다. 주소를 고정해 그 일을 없앤다.
+ *
+ * 인스턴스가 켜져 있는 동안에는 원래 내던 공인 IPv4 요금을 대신 낸다.
+ * 멈춰 둔 시간만큼은 EIP 요금이 따로 붙는다. 시간당 0.005 USD 수준이다.
+ */
+resource "aws_eip" "monitoring" {
+  count = local.has_duckdns ? 1 : 0
+
+  instance = aws_instance.monitoring.id
+  domain   = "vpc"
+
+  tags = {
+    Name = "${var.project}-monitoring"
+  }
+}

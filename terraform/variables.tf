@@ -108,6 +108,32 @@ variable "grafana_oidc_client_id" {
 }
 
 /*
+ * 도메인을 사기 전까지 쓰는 임시 경로다. 비우면 아무것도 만들지 않는다.
+ *
+ * ALB 를 거치지 않는다. 모니터링 인스턴스의 Caddy 가 직접 TLS 를 종료하고
+ * Let's Encrypt 에서 인증서를 받는다. ACM 은 도메인 소유 검증이 필요해 쓸 수 없다.
+ *
+ * domain_name 이 생기면 이 값을 비운다. 두 경로를 동시에 켜지 않는다.
+ */
+variable "duckdns_hostname" {
+  description = "DuckDNS 호스트명. 예: freshmenmarket.duckdns.org"
+  type        = string
+  default     = ""
+}
+
+/*
+ * Caddy 의 443 을 열어 줄 대역이다.
+ *
+ * 기본값이 전체 공개인 것은 Caddy 의 basic_auth 가 인증 전 요청을 막기 때문이다.
+ * 팀이 고정 IP 를 쓴다면 좁히는 편이 낫다. VPN 출구 IP 는 공유되고 바뀌므로 좁히는 의미가 적다.
+ */
+variable "grafana_https_allowed_cidrs" {
+  description = "Caddy 443 을 열어 줄 CIDR 목록"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+/*
  * 역할별 인스턴스 타입. 기술 스택 확정 문서 2.6절.
  *
  * batch 는 app 과 같은 아키텍처여야 한다. 같은 컨테이너 이미지를 batch 프로필로 띄우기 때문이다.

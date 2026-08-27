@@ -20,6 +20,19 @@ locals {
    * 클라이언트 ID 가 없으면 인증 없이 노출하게 되므로 그때도 붙이지 않는다.
    */
   has_grafana = local.has_domain && var.grafana_oidc_client_id != ""
+
+  # 도메인을 사기 전까지 쓰는 임시 경로다. ALB 를 거치지 않는다.
+  has_duckdns = var.duckdns_hostname != ""
+
+  /*
+   * Grafana 가 자기 주소를 아는 값이다. ALB 경로가 있으면 그쪽이 정본이다.
+   * 틀리면 로그인 후 리디렉션과 패널 공유 링크가 localhost 로 간다.
+   */
+  grafana_root_url = (
+    local.has_grafana ? "https://${local.grafana_host}/" :
+    local.has_duckdns ? "https://${var.duckdns_hostname}/" :
+    "unset"
+  )
 }
 
 resource "aws_route53_zone" "main" {

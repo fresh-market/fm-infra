@@ -33,15 +33,40 @@ for name in critical warning watchdog; do
   chmod 600 "$f"
 done
 
-# 도메인이 없으면 unset 이다. 그때는 SSM 포트 포워딩으로 보므로 localhost 가 맞는 값이다.
-#
-# 인증 프록시도 같이 갈린다. ALB 를 안 거치면 X-Amzn-Oidc-Identity 헤더가 없어서,
-# 켜 둔 채로 포트 포워딩으로 붙으면 아무도 로그인하지 못한다.
+# Grafana 가 자기 주소를 아는 값이다. 없으면 SSM 포트 포워딩으로 보므로 localhost 가 맞다.
 GRAFANA_ROOT_URL=$(get grafana-root-url)
-GRAFANA_AUTH_PROXY_ENABLED=true
-if [ "$GRAFANA_ROOT_URL" = "unset" ]; then
-  GRAFANA_ROOT_URL=http://localhost:3000/
-  GRAFANA_AUTH_PROXY_ENABLED=false
+[ "$GRAFANA_ROOT_URL" = "unset" ] && GRAFANA_ROOT_URL=http://localhost:3000/
+
+# 주소가 있다고 인증 프록시를 켜면 안 된다.
+# 헤더를 실어 주는 것은 ALB 의 OIDC 리스너뿐이라 그 조건만 따른다.
+# DuckDNS 경로에는 ALB 가 없어 켜 두면 아무도 로그인하지 못한다.
+GRAFANA_AUTH_PROXY_ENABLED=$(get grafana-auth-proxy)
+
+# 아직 안 넣었을 수 있으므로 없으면 빈 값으로 둔다.
+GRAFANA_ADMIN_PASSWORD=$(sec grafana-admin-password 2>/dev/null || true)
+[ "$GRAFANA_ADMIN_PASSWORD" = "unset" ] && GRAFANA_ADMIN_PASSWORD=""
+
+CADDY_BASIC_AUTH_HASH=$(sec caddy-basic-auth-hash 2>/dev/null || true)
+[ "$CADDY_BASIC_AUTH_HASH" = "unset" ] && CADDY_BASIC_AUTH_HASH=""
+
+# Caddy 는 호스트명이 있을 때만 띄운다. compose 의 tls 프로필이 그것을 받는다.
+DUCKDNS_HOSTNAME=$(get duckdns-hostname)
+COMPOSE_PROFILES=
+if [ "$DUCKDNS_HOSTNAME" = "unset" ]; then
+  DUCKDNS_HOSTNAME=""
+else
+  COMPOSE_PROFILES=tls
+
+  # 인증 없이 인터넷에 열리는 것을 막는다. 둘 중 하나라도 비면 여기서 멈춘다.
+  if [ -z "$CADDY_BASIC_AUTH_HASH" ]; then
+    echo "caddy-basic-auth-hash 가 비어 있다. 인증 없이 Grafana 를 열 수 없다." >&2
+    echo "  docker run --rm caddy caddy hash-password --plaintext '<비밀번호>'" >&2
+    exit 1
+  fi
+  if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
+    echo "grafana-admin-password 가 비어 있다. 기본 비밀번호로 밖에 열 수 없다." >&2
+    exit 1
+  fi
 fi
 
 install -d -m 0755 "$D"
@@ -52,5 +77,9 @@ DB_EXPORTER_PASSWORD=$(sec db-exporter-password)
 DB_EXPORTER_USER=${db_username}
 GRAFANA_ROOT_URL=$GRAFANA_ROOT_URL
 GRAFANA_AUTH_PROXY_ENABLED=$GRAFANA_AUTH_PROXY_ENABLED
+GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD
+DUCKDNS_HOSTNAME=$DUCKDNS_HOSTNAME
+CADDY_BASIC_AUTH_HASH=$CADDY_BASIC_AUTH_HASH
+COMPOSE_PROFILES=$COMPOSE_PROFILES
 ENV
 chmod 600 "$D/.env"

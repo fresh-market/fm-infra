@@ -266,3 +266,35 @@ resource "aws_vpc_security_group_egress_rule" "all" {
   ip_protocol       = "-1"
   description       = "allow all outbound"
 }
+
+/*
+ * Caddy 가 Let's Encrypt 에서 인증서를 받는 경로다 (HTTP-01).
+ * 검증 요청이 전 세계 여러 IP 에서 오므로 대역을 좁힐 수 없다.
+ *
+ * 80 은 챌린지 응답과 443 리다이렉트만 한다. Grafana 로 넘기지 않는다.
+ */
+resource "aws_vpc_security_group_ingress_rule" "caddy_acme" {
+  count = local.has_duckdns ? 1 : 0
+
+  security_group_id = aws_security_group.mon.id
+  cidr_ipv4         = "0.0.0.0/0"
+  from_port         = 80
+  to_port           = 80
+  ip_protocol       = "tcp"
+  description       = "Let's Encrypt HTTP-01 challenge"
+}
+
+/*
+ * 팀원이 Grafana 를 보는 문이다.
+ * 인증 전 요청은 Caddy 의 basic_auth 가 막으므로 Grafana 까지 닿지 않는다.
+ */
+resource "aws_vpc_security_group_ingress_rule" "caddy_https" {
+  for_each = local.has_duckdns ? toset(var.grafana_https_allowed_cidrs) : toset([])
+
+  security_group_id = aws_security_group.mon.id
+  cidr_ipv4         = each.value
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  description       = "Grafana via Caddy"
+}

@@ -27,8 +27,9 @@ services:
     image: grafana/grafana:12.4.3
     container_name: grafana
     restart: unless-stopped
+    # 루프백에만 묶는다. 밖에서 오는 것은 Caddy 가 받고, SSM 포트 포워딩은 localhost 로 붙어 그대로 된다.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
@@ -36,6 +37,8 @@ services:
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # 값은 SSM grafana-admin-password 에서 온다. 밖에 열려 있는데 비어 있으면 refresh 가 막는다.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       # 도메인이 없으면 SSM 포트 포워딩으로 보므로 localhost 가 맞다. 값은 refresh-monitoring-env 가 .env 에 넣는다.
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000/}
       # ALB 가 Google 로 인증을 끝내고 X-Amzn-Oidc-Identity 헤더에 이메일을 실어 보낸다.
@@ -50,6 +53,28 @@ services:
       GF_AUTH_PROXY_SYNC_TTL: "60"
       # 팀원은 보기만 한다. 대시보드는 Git 이 갖고 화면에서 고칠 수 없다.
       GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+
+  # DUCKDNS_HOSTNAME 이 있을 때만 뜬다. refresh-monitoring-env 가 COMPOSE_PROFILES 를 정한다.
+  caddy:
+    image: caddy:2.11.4-alpine
+    container_name: caddy
+    restart: unless-stopped
+    profiles:
+      - tls
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 발급받은 인증서가 여기 남는다. 지우면 재발급이고 Let's Encrypt 한도에 걸린다.
+      - caddy-data:/data
+      - caddy-config:/config
+    # environment 가 아니라 env_file 로 넘긴다.
+    # bcrypt 해시에 $ 가 들어 있어 compose 치환을 거치면 깨진다.
+    env_file:
+      - .env
+    depends_on:
+      - grafana
 
   loki:
     image: grafana/loki:3.7.4
@@ -167,6 +192,8 @@ volumes:
   grafana-data:
   loki-data:
   alertmanager-data:
+  caddy-data:
+  caddy-config:
 
 secrets:
   slack_webhook_critical:

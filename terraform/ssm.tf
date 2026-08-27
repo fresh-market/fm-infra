@@ -95,5 +95,26 @@ resource "aws_ssm_parameter" "grafana_root_url" {
   name        = "${local.ssm_prefix}/grafana-root-url"
   description = "Grafana external URL. unset means SSM port forwarding only"
   type        = "String"
-  value       = local.has_grafana ? "https://${local.grafana_host}/" : "unset"
+  value       = local.grafana_root_url
+}
+
+/*
+ * 인증 프록시를 켤지 여기서 정한다.
+ *
+ * 주소가 있다고 켜면 안 된다. DuckDNS 경로에는 ALB 가 없어 X-Amzn-Oidc-Identity 헤더가
+ * 오지 않고, 켜 두면 아무도 로그인하지 못한다. 헤더를 실어 주는 것은 OIDC 리스너 규칙뿐이다.
+ */
+resource "aws_ssm_parameter" "grafana_auth_proxy" {
+  name        = "${local.ssm_prefix}/grafana-auth-proxy"
+  description = "whether ALB puts the OIDC identity header in front of Grafana"
+  type        = "String"
+  value       = local.has_grafana ? "true" : "false"
+}
+
+# Caddy 가 어느 이름으로 인증서를 받을지 알아야 한다. 비어 있으면 Caddy 를 띄우지 않는다.
+resource "aws_ssm_parameter" "duckdns_hostname" {
+  name        = "${local.ssm_prefix}/duckdns-hostname"
+  description = "DuckDNS hostname for the Caddy TLS front. unset when unused"
+  type        = "String"
+  value       = local.has_duckdns ? var.duckdns_hostname : "unset"
 }
