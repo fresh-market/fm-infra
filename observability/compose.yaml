@@ -69,8 +69,7 @@ services:
       # 발급받은 인증서가 여기 남는다. 지우면 재발급이고 Let's Encrypt 한도에 걸린다.
       - caddy-data:/data
       - caddy-config:/config
-    # environment 가 아니라 env_file 로 넘긴다.
-    # bcrypt 해시에 $ 가 들어 있어 compose 치환을 거치면 깨진다.
+    # 해시의 $ 는 refresh-monitoring-env 가 $$ 로 적어 둔다. 여기서 원래대로 돌아온다.
     env_file:
       - .env
     depends_on:

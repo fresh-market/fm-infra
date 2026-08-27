@@ -67,6 +67,13 @@ else
     echo "grafana-admin-password 가 비어 있다. 기본 비밀번호로 밖에 열 수 없다." >&2
     exit 1
   fi
+
+  # compose 는 .env 값의 $ 를 변수 참조로 읽는다. env_file 로 넘겨도 마찬가지다.
+  #
+  # bcrypt 해시는 $2a$14$... 꼴이라 그대로 두면 $14 뒤가 통째로 사라진다.
+  # 컨테이너에는 "$2a$14" 만 들어가고 basic_auth 는 아무 비밀번호도 통과시키지 않는다.
+  # $$ 로 적어 두면 compose 가 $ 하나로 되돌려 원본이 그대로 도착한다.
+  CADDY_BASIC_AUTH_HASH=$(printf '%s' "$CADDY_BASIC_AUTH_HASH" | sed 's/\$/$$/g')
 fi
 
 install -d -m 0755 "$D"
