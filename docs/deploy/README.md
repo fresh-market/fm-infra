@@ -190,7 +190,7 @@ v4 는 큐에서 기다리는 구조라 포화 구간에서 응답이 초 단위
 
 ```bash
 docker run --rm --network host --ulimit nofile=250000:250000 \
-  -v "$PWD:/scripts" grafana/k6:<태그> run /scripts/coupon-burst.js
+  -v "$PWD:/scripts" grafana/k6:1.7.1 run /scripts/coupon-burst.js
 ```
 
 `--network host` 는 브리지 NAT 를 건너뛴다. 안 붙이면 NAT 테이블에서 포트가 먼저 마른다.
