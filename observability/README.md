@@ -90,7 +90,10 @@ Grafana 의 3000 은 루프백에만 묶여 있어 밖에서 직접 닿을 수 �
 **여는 순서**
 
 ```bash
-# 1. duckdns.org 에서 서브도메인을 만든다. IP 는 3단계 뒤에 채운다.
+# 1. duckdns.org 에서 서브도메인을 만든다. IP 는 인스턴스가 스스로 채운다.
+#    화면 위쪽의 token 을 복사해 SSM 에 넣는다.
+aws ssm put-parameter --name /freshmarket/duckdns-token \
+  --type SecureString --value '<토큰>' --region ap-northeast-2
 
 # 2. basic auth 해시를 만들고 시크릿 둘을 넣는다.
 docker run --rm caddy caddy hash-password --plaintext '<팀 공용 비밀번호>'
@@ -105,17 +108,25 @@ aws ssm put-parameter --name /freshmarket/grafana-admin-password \
 terraform apply
 terraform output monitoring_public_ip
 
-# 4. 그 IP 를 DuckDNS 화면의 current ip 에 넣고 update 를 누른다.
-#    여기가 인스턴스 IP 다. 접속하는 사람의 IP 가 아니다.
-dig +short A <이름>.duckdns.org      # 값이 3단계 IP 와 같아야 한다
-
-# 5. 박스에서 스택을 올린다.
+# 4. 최초 부팅이면 아무것도 안 해도 된다. 인스턴스가 뜨면서 스스로 등록한다.
+#    이미 떠 있는 인스턴스에 적용하는 경우에만 아래를 돌린다.
 cd /opt/freshmarket/infra && git pull --ff-only
 sudo /usr/local/bin/freshmarket-refresh-monitoring-env
 cd observability && docker compose up -d
+
+# 5. 확인
+dig +short A <이름>.duckdns.org
 ```
 
-4번의 DNS 가 먼저 맞아야 5번에서 인증서가 발급된다. 순서를 지킨다.
+**DuckDNS 갱신은 인스턴스가 직접 한다.** `refresh-monitoring-env` 가 Caddy 를 띄우기 전에
+`ip=` 를 비운 채로 DuckDNS 업데이트 API 를 호출하면, DuckDNS 가 호출한 쪽의 출발지 IP 를 기록한다.
+EIP 값을 어디에도 넘겨줄 필요가 없고, 재구축으로 IP 가 바뀌어도 손댈 일이 없다.
+
+순서 문제도 여기서 사라진다. 갱신이 Caddy 기동보다 먼저라 인증서가 첫 시도에 나온다.
+
+토큰을 안 넣으면 갱신을 건너뛰고 진행한다. 그때는 DuckDNS 화면에서 손으로 맞춰야 하고,
+맞추기 전에 Caddy 가 뜨면 발급이 실패한다. 실패해도 재시도하므로 고친 뒤
+`docker compose restart caddy` 로 즉시 다시 시키면 된다.
 
 **시크릿 둘은 필수다.** 하나라도 비면 `refresh-monitoring-env` 가 멈춘다.
 인증 없이 인터넷에 열리는 상태를 만들지 않기 위해서다.
