@@ -262,3 +262,61 @@ data "aws_ssm_parameter" "grafana_oidc_client_secret" {
   name            = "${local.ssm_prefix}/grafana-oidc-client-secret"
   with_decryption = true
 }
+
+/*
+ * 선착순 전용 경로다 (coupon.md 4장). coupon_dedicated_enabled 로 켜고 끈다.
+ *
+ * 분리하는 이유는 격벽이다. 안 나누면 선착순 트래픽이 톰캣 스레드와 커넥션 풀을 다 먹어
+ * 상품 조회와 주문이 함께 죽는다. 부수 효과로 버전 비교가 깨끗해지고 되돌리기가 쉬워진다.
+ *
+ * 꺼 두면 발급 요청이 기본 동작을 타고 평상시 앱으로 간다. 규칙만 사라질 뿐 경로가 막히지 않는다.
+ */
+resource "aws_lb_target_group" "coupon" {
+  count = var.coupon_dedicated_enabled ? 1 : 0
+
+  name        = "${var.project}-coupon"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "instance"
+
+  # 앱 대상 그룹과 같은 값이다. 같은 이미지를 프로파일만 바꿔 띄우므로 종료 특성이 같다.
+  deregistration_delay = 30
+
+  health_check {
+    path                = "/actuator/health/readiness"
+    port                = "8081"
+    protocol            = "HTTP"
+    interval            = 10
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    matcher             = "200"
+  }
+
+  tags = {
+    Name = "${var.project}-coupon"
+  }
+}
+
+/*
+ * priority 는 liveness(10) 다음, Grafana(20) 앞을 피해 15 로 둔다.
+ * 경로 패턴이 서로 겹치지 않아 순서 자체는 결과를 바꾸지 않는다.
+ */
+resource "aws_lb_listener_rule" "coupon" {
+  count = var.coupon_dedicated_enabled ? 1 : 0
+
+  listener_arn = local.public_listener_arn
+  priority     = 15
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.coupon[0].arn
+  }
+
+  condition {
+    path_pattern {
+      values = [var.coupon_path_pattern]
+    }
+  }
+}

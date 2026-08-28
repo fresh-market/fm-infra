@@ -108,6 +108,56 @@ variable "grafana_oidc_client_id" {
 }
 
 /*
+ * 선착순 전용 경로를 만들지 정한다 (coupon.md 4장).
+ *
+ * false 면 대상 그룹도 리스너 규칙도 ASG 도 만들지 않고, 발급 요청이 평상시 앱으로 간다.
+ * true 로 올리면 그 경로만 전용 ASG 로 갈라진다. 이벤트가 끝나면 다시 내린다.
+ *
+ * 되돌리기가 쉬운 것이 이 구조를 택한 이유 중 하나다.
+ * 문제가 나면 이 값을 false 로 두어 선착순만 끊고 나머지는 살린다.
+ */
+variable "coupon_dedicated_enabled" {
+  description = "선착순 전용 대상 그룹과 ASG 를 만들지 여부"
+  type        = bool
+  default     = false
+}
+
+/*
+ * 전용 ASG 의 상한이다.
+ *
+ * coupon.md 5장의 커넥션 예산이 이 값을 묶는다. 평상시 사용이 약 33 이고
+ * max_connections 예측이 약 60 이라, 인스턴스당 풀 10 이면 3대에서 63 으로 넘긴다.
+ * 3대를 쓰려면 application-coupon.yml 이 풀을 4~5 로 줄여 두어야 한다.
+ *
+ * 실측 전이므로 예측값 위에 서 있는 숫자다 (OPS-1-11).
+ */
+variable "coupon_max_size" {
+  description = "선착순 전용 ASG 최대 대수"
+  type        = number
+  default     = 3
+}
+
+# 발급 엔드포인트 경로다. POST /v1/coupons/{couponId}/issues 를 와일드카드로 잡는다.
+variable "coupon_path_pattern" {
+  description = "선착순 전용 경로로 보낼 ALB 경로 패턴"
+  type        = string
+  default     = "/v1/coupons/*/issues"
+}
+
+/*
+ * 대상당 분당 요청 수. 이 값을 넘으면 인스턴스를 늘린다.
+ *
+ * 시작값이고 부하 시험에서 옮긴다 (coupon.md 8장).
+ * 버스트에는 이 정책이 못 따라온다. 알람 평가와 부팅에 수 분이 걸려 이벤트가 먼저 끝난다.
+ * 이벤트 전에는 desired 를 미리 올려 두고, 이 정책은 길게 이어지는 부하의 안전망으로만 둔다.
+ */
+variable "coupon_target_requests_per_instance" {
+  description = "전용 ASG 확장 기준. 대상당 분당 요청 수"
+  type        = number
+  default     = 3000
+}
+
+/*
  * 도메인을 사기 전까지 쓰는 임시 경로다. 비우면 아무것도 만들지 않는다.
  *
  * ALB 를 거치지 않는다. 모니터링 인스턴스의 Caddy 가 직접 TLS 를 종료하고

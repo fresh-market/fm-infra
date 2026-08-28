@@ -78,7 +78,8 @@ else
   [ "$DUCKDNS_TOKEN" = "unset" ] && DUCKDNS_TOKEN=""
 
   if [ -n "$DUCKDNS_TOKEN" ]; then
-    label=${DUCKDNS_HOSTNAME%%.duckdns.org}
+    # $${ 로 적어야 terraform 이 자기 보간으로 읽지 않고 셸에 $ { 로 넘긴다.
+    label=$${DUCKDNS_HOSTNAME%%.duckdns.org}
     result=$(curl -fsS --max-time 20 \
       "https://www.duckdns.org/update?domains=$label&token=$DUCKDNS_TOKEN&ip=" || echo FAIL)
     if [ "$result" = "OK" ]; then

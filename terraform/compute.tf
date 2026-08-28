@@ -79,6 +79,24 @@ locals {
     unit             = templatefile("${path.module}/templates/systemd.service.tftpl", { project = var.project, profiles = "prod" })
   })
 
+  /*
+   * 전용 인스턴스는 같은 이미지를 coupon 프로파일로 띄운다.
+   *
+   * application-coupon.yml 이 커넥션 풀을 줄이는 자리다 (coupon.md 5장).
+   * 그 파일이 아직 없어도 기동은 된다. Spring 은 없는 프로파일 파일을 무시한다.
+   * 다만 파일이 생기기 전에는 풀이 앱과 같은 10 이라 3대를 올리면 예산을 넘긴다.
+   */
+  coupon_user_data = templatefile("${path.module}/templates/app-user-data.sh.tftpl", {
+    common_bootstrap = local.common_bootstrap
+    project          = var.project
+    region           = var.region
+    github_org       = var.github_org
+    refresh_env      = local.refresh_env
+    alloy            = local.alloy_config
+    compose          = templatefile("${path.module}/templates/compose.yaml.tftpl", merge(local.compose_args, { profiles = "prod,coupon", role = "coupon" }))
+    unit             = templatefile("${path.module}/templates/systemd.service.tftpl", { project = var.project, profiles = "prod,coupon" })
+  })
+
   batch_user_data = templatefile("${path.module}/templates/app-user-data.sh.tftpl", {
     common_bootstrap = local.common_bootstrap
     project          = var.project
@@ -185,4 +203,123 @@ resource "aws_autoscaling_lifecycle_hook" "app_terminating" {
   lifecycle_transition   = "autoscaling:EC2_INSTANCE_TERMINATING"
   heartbeat_timeout      = 300
   default_result         = "CONTINUE"
+}
+
+/*
+ * 선착순 전용 ASG 다 (coupon.md 4장). coupon_dedicated_enabled 로 켜고 끈다.
+ *
+ * desired 0 으로 태어난다. 이벤트 전에 올리고 끝나면 내린다.
+ * 평상시에 켜 두면 커넥션 예산만 먹는다.
+ */
+resource "aws_launch_template" "coupon" {
+  count = var.coupon_dedicated_enabled ? 1 : 0
+
+  name_prefix   = "${var.project}-coupon-"
+  image_id      = data.aws_ami.ubuntu_x86.id
+  instance_type = var.instance_types["app"]
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.instance["app"].name
+  }
+
+  # 앱과 같은 보안 그룹이다. 같은 곳(RDS, 캐시)을 같은 포트로 본다.
+  vpc_security_group_ids = [aws_security_group.app.id]
+  user_data              = base64encode(local.coupon_user_data)
+
+  block_device_mappings {
+    device_name = "/dev/sda1"
+
+    ebs {
+      volume_size           = 30
+      volume_type           = "gp3"
+      encrypted             = true
+      delete_on_termination = true
+    }
+  }
+
+  metadata_options {
+    http_tokens                 = "required"
+    http_endpoint               = "enabled"
+    http_put_response_hop_limit = 2
+  }
+
+  tag_specifications {
+    resource_type = "instance"
+
+    tags = {
+      Name = "${var.project}-coupon"
+      Role = "coupon"
+    }
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+/*
+ * liveness 대상 그룹에 넣지 않는다.
+ * 그것은 Route 53 헬스체크가 밖에서 찌르는 자리이고, 전용 인스턴스는 그 대상이 아니다.
+ *
+ * desired_capacity 에 ignore_changes 를 건다.
+ * 이벤트 운영과 스케일링 정책이 값의 주인이고 apply 가 되돌리면 안 된다.
+ */
+resource "aws_autoscaling_group" "coupon" {
+  count = var.coupon_dedicated_enabled ? 1 : 0
+
+  name                = "${var.project}-coupon"
+  vpc_zone_identifier = [for s in aws_subnet.public : s.id]
+
+  min_size         = 0
+  desired_capacity = 0
+  max_size         = var.coupon_max_size
+
+  health_check_type         = "ELB"
+  health_check_grace_period = 300
+
+  target_group_arns = [aws_lb_target_group.coupon[0].arn]
+
+  launch_template {
+    id      = aws_launch_template.coupon[0].id
+    version = "$Latest"
+  }
+
+  tag {
+    key                 = "Project"
+    value               = var.project
+    propagate_at_launch = true
+  }
+
+  lifecycle {
+    ignore_changes = [desired_capacity]
+  }
+}
+
+/*
+ * 대상당 요청 수로 늘린다. CPU 를 안 쓰는 이유는 t3.small 이 버스터블이기 때문이다.
+ * 크레딧이 마르면 CPU 사용률은 멀쩡해 보이는데 실제 여력은 이미 없다.
+ *
+ * 버스트에는 이 정책이 못 따라온다. 알람 평가와 부팅에 수 분이 걸려 이벤트가 먼저 끝난다.
+ * 이벤트 전에 desired 를 미리 올려 두는 것이 본 수단이고, 이것은 길게 이어지는 부하의 안전망이다.
+ *
+ * 이 정책 하나가 CloudWatch 알람 2개를 자동으로 만든다. INF-31 의 한도에 함께 계산해야 한다.
+ */
+resource "aws_autoscaling_policy" "coupon_requests" {
+  count = var.coupon_dedicated_enabled ? 1 : 0
+
+  name                   = "${var.project}-coupon-requests"
+  autoscaling_group_name = aws_autoscaling_group.coupon[0].name
+  policy_type            = "TargetTrackingScaling"
+
+  target_tracking_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ALBRequestCountPerTarget"
+      resource_label         = "${aws_lb.main.arn_suffix}/${aws_lb_target_group.coupon[0].arn_suffix}"
+    }
+
+    target_value = var.coupon_target_requests_per_instance
+
+    # 줄이는 쪽을 늦게 잡는다. 이벤트 중 잠깐 잦아들었다고 내리면 다음 파도를 못 받는다.
+    disable_scale_in = true
+  }
 }

@@ -29,3 +29,10 @@ grafana_oidc_client_id = ""
 # 채우면 모니터링 인스턴스에 EIP 가 붙고 Caddy 가 Let's Encrypt 인증서를 받는다.
 # domain_name 이 생기면 이 값을 비운다.
 duckdns_hostname = ""
+
+# 선착순 이벤트 전에 true 로 올린다. 전용 대상 그룹과 ASG 와 경로 규칙이 함께 생긴다.
+# 끄면 발급 요청이 평상시 앱으로 간다. 되돌리기가 쉬운 것이 이 구조의 이유 중 하나다.
+#
+# 3대를 쓰려면 application-coupon.yml 이 커넥션 풀을 4~5 로 줄여 두어야 한다.
+# 풀이 앱과 같은 10 이면 3대에서 max_connections 예산을 넘긴다 (coupon.md 5장).
+coupon_dedicated_enabled = false

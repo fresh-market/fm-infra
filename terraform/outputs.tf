@@ -78,3 +78,14 @@ output "monitoring_public_ip" {
   description = "모니터링 인스턴스 고정 IP. DuckDNS 를 쓸 때만 값이 생긴다"
   value       = local.has_duckdns ? aws_eip.monitoring[0].public_ip : ""
 }
+
+/*
+ * 이벤트 운영이 대수를 조절할 대상이다.
+ * 버스트에는 스케일링 정책이 못 따라오므로 이벤트 전에 이 ASG 의 desired 를 직접 올린다.
+ *
+ *   aws autoscaling set-desired-capacity --auto-scaling-group-name <이 값> --desired-capacity 3
+ */
+output "coupon_asg_name" {
+  description = "선착순 전용 ASG 이름. 전용 경로를 끄면 비어 있다"
+  value       = var.coupon_dedicated_enabled ? aws_autoscaling_group.coupon[0].name : ""
+}
