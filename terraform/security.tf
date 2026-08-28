@@ -281,7 +281,8 @@ resource "aws_vpc_security_group_ingress_rule" "caddy_acme" {
   from_port         = 80
   to_port           = 80
   ip_protocol       = "tcp"
-  description       = "Let's Encrypt HTTP-01 challenge"
+  # 아포스트로피는 AWS 가 규칙 설명에서 거부한다. 허용 집합은 a-zA-Z0-9._-:/()#,@[]+=&;{}!$* 다.
+  description = "ACME HTTP-01 challenge for Caddy"
 }
 
 /*
