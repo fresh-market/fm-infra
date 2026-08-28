@@ -153,6 +153,48 @@ CDN 도메인과 ALB 주소는 재구축마다 바뀌지만 **손댈 것이 없�
 ./scripts/start.sh    # RDS 와 인스턴스 시작 -> 엔드포인트 갱신 -> desired 1 -> healthy 대기
 ```
 
+## 부하 생성기
+
+`load_test_enabled = true` 로 올린다. 시험이 끝나면 다시 내린다.
+
+```
+m7i.xlarge   4 vCPU / 16 GB
+```
+
+**버스터블도 flex 도 쓰지 않는다.** 몇 분간 CPU 를 계속 밀어야 하는데 둘 다 그 구간에서 제한이
+걸린다. 그러면 서버가 아니라 생성기를 측정하게 된다. 이전의 `t3a.small` 은 RAM 2 GB 라
+VU 1,500 정도가 상한이었다.
+
+16 GB 로 잡은 근거는 VU 당 메모리다. k6 공식 문서가 VU 당 1~5 MB 를 든다.
+
+| 응답시간 | 필요 VU | 필요 RAM (VU 당 2 MB) |
+|---|---|---|
+| 200ms | 800 | 2 GB |
+| 1초 | 4,000 | 8 GB |
+| 3초 (큐 대기) | 12,000 | 24 GB |
+
+v4 는 큐에서 기다리는 구조라 포화 구간에서 응답이 초 단위로 밀린다. **VU 당 메모리가 3 MB 를
+넘게 측정되면 32 GB(`r7i.xlarge` 또는 `m7i.2xlarge`)로 올린다.** 재는 방법은 k6 문서를 따른다.
+100 VU 로 돌려 상주 메모리를 재고 목표 VU 수를 곱한다.
+
+**토큰을 `SharedArray` 로 넣어야 한다.** 1인 1매라 VU 마다 다른 회원의 JWT 가 필요한데,
+평범하게 `open()` 으로 읽으면 VU 마다 배열 전체가 복제된다. 2만 개면 VU 당 16 MB 라
+어떤 인스턴스로도 감당하지 못한다.
+
+### 커널 값은 user-data 가 올린다
+
+2만 연결을 짧은 창에 열고 닫으므로 기본값으로는 임시 포트와 파일 디스크립터가 먼저 마른다.
+`ip_local_port_range`, `tcp_tw_reuse`, `nofile 250000` 을 부팅 때 건다.
+
+**컨테이너로 돌리면 호스트 설정이 그대로 적용되지 않는다.** 두 옵션을 붙인다.
+
+```bash
+docker run --rm --network host --ulimit nofile=250000:250000 \
+  -v "$PWD:/scripts" grafana/k6:<태그> run /scripts/coupon-burst.js
+```
+
+`--network host` 는 브리지 NAT 를 건너뛴다. 안 붙이면 NAT 테이블에서 포트가 먼저 마른다.
+
 ## 선착순 이벤트
 
 용량 조절은 `scripts/coupon-event.sh` 가 한다.

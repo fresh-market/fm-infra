@@ -100,7 +100,7 @@ resource "aws_instance" "load_test" {
   subnet_id              = aws_subnet.public["a"].id
   vpc_security_group_ids = [aws_security_group.lt.id]
   iam_instance_profile   = aws_iam_instance_profile.instance["lt"].name
-  user_data_base64       = base64encode(local.standalone_user_data)
+  user_data_base64       = base64encode(local.load_test_user_data)
 
   root_block_device {
     volume_size           = 20
