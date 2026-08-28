@@ -201,12 +201,16 @@ variable "grafana_https_allowed_cidrs" {
  *
  * monitoring 은 관계없다. 자기 이미지를 따로 받고 전부 멀티아키를 제공한다.
  *
- * load_test 는 x86 이다. k6 는 멀티아키를 제공하므로 아키텍처가 제약은 아니고,
- * 나머지 x86 인스턴스와 맞춰 두는 편이 도구와 절차를 갈라놓지 않는다.
- * 4 vCPU / 16 GB 로 잡은 것은 VU 당 메모리 때문이다. k6 공식 문서가 VU 당 1~5 MB 를 든다.
- * 2만 건을 5초에 쏟으면 4,000 RPS 이고, 응답이 1초로 밀리면 4,000 VU 가 뜬다.
- * 버스터블도 flex 도 쓰지 않는다. 몇 분간 CPU 를 계속 밀어야 하는데 둘 다 그 구간에서 제한이 걸려
- * 서버가 아니라 생성기를 측정하게 된다.
+ * load_test 는 x86 이다. k6 는 멀티아키를 제공하므로 제약은 아니고 나머지와 맞춰 둔 것이다.
+ *
+ * 2 vCPU / 8 GB 는 실측에서 나왔다 (loadtest/README.md).
+ * VU 당 0.365 MiB 라 최악 시나리오(응답 10초, 6,670 VU)에도 2.5 GB 다. 3배 여유가 있다.
+ * 요구사항의 ramp-up 60s 기준 최고 도착률이 667 RPS 라 그리 높지도 않다.
+ *
+ * 버스터블도 flex 도 쓰지 않는다. 크레딧 때문이 아니라 측정 안정성 때문이다.
+ * 회차마다 크레딧 상태가 다르면 같은 코드가 다른 숫자를 낸다.
+ *
+ * CPU 는 실측하지 못했다. 첫 실행에서 dropped_iterations 가 0 이 아니면 m7i.xlarge 로 올린다.
  */
 variable "instance_types" {
   description = "역할별 인스턴스 타입. 기술 스택 확정 문서 2.6절"
@@ -216,7 +220,7 @@ variable "instance_types" {
     app        = "t3.small"
     monitoring = "t4g.small"
     batch      = "t3.micro"
-    load_test  = "m7i.xlarge"
+    load_test  = "m7i.large"
   }
 }
 
