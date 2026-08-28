@@ -36,7 +36,7 @@
     {
       "type": "timeseries",
       "title": "EC2 CPU 크레딧 잔량",
-      "description": "node_exporter 에는 이 값이 없다. 하이퍼바이저가 관리해 호스트 안에서 보이지 않는다. 선은 CpuCreditLow(173) 와 CpuCreditCritical(58) 임계다.",
+      "description": "node_exporter 에는 이 값이 없다. 하이퍼바이저가 관리해 호스트 안에서 보이지 않는다. 인스턴스가 unlimited 모드라 이 선을 넘어도 느려지지 않는다. 초과분 과금이 시작되는 지점이다 (vCPU 시간당 0.05 USD). 선은 CpuCreditLow(173) 와 CpuCreditCritical(58) 임계다.",
       "gridPos": {
         "x": 0,
         "y": 1,

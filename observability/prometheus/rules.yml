@@ -32,27 +32,33 @@ groups:
 
   - name: warning
     rules:
-      # 최대 누적량의 30%. t3.small 은 288 이 최대라 173 이다.
+      # 최대 누적량의 30%. t3.small 은 576 이 최대라 173 이다.
+      # (t3.micro 가 288 이다. 전에 그 값을 적어 두었으나 임계값 자체는 576 기준이라 맞다)
       #
       # 지표는 cloudwatch_exporter 가 AWS/EC2 에서 가져온다.
       # node_exporter 에는 이 값이 없다. 크레딧은 하이퍼바이저가 관리해 호스트 안에서 보이지 않는다.
       # 전에 node_cpu_credit_balance 라는 존재하지 않는 이름을 쓰고 있어 두 알람이 발동한 적이 없다.
+      #
+      # 인스턴스가 unlimited 모드라 이 둘은 성능 경고가 아니다.
+      # 크레딧이 말라도 스로틀링이 없고 초과분이 과금될 뿐이다 (vCPU 시간당 0.05 USD).
+      # 그래서 "느려진다" 가 아니라 "여기부터 돈이 나간다" 로 읽어야 한다.
+      # standard 모드로 바꾸면 그때부터 성능 경고가 된다.
       - alert: CpuCreditLow
         expr: aws_ec2_cpucredit_balance_average < 173
         for: 5m
         labels:
           severity: warning
         annotations:
-          description: "CPU 크레딧이 30% 아래다. 부하를 확인하라"
+          description: "CPU 크레딧이 30% 아래다. 곧 초과분 과금이 시작된다"
 
-      # 최대 누적량의 10%. 여기부터는 기준선 성능으로 떨어질 수 있다.
+      # 최대 누적량의 10%. 여기부터는 사실상 계속 초과분을 낸다.
       - alert: CpuCreditCritical
         expr: aws_ec2_cpucredit_balance_average < 58
         for: 5m
         labels:
           severity: warning
         annotations:
-          description: "CPU 크레딧이 10% 아래다. 즉시 원인을 조치하라"
+          description: "CPU 크레딧이 10% 아래다. 초과분 과금 중이다. 부하 원인을 확인하라"
 
       # 풀 크기 10 의 90%. 대기가 쌓이면 톰캣 스레드가 먼저 마른다.
       - alert: HikariPendingHigh

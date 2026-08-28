@@ -126,10 +126,10 @@ variable "coupon_dedicated_enabled" {
  * 전용 ASG 의 상한이다.
  *
  * coupon.md 5장의 커넥션 예산이 이 값을 묶는다. 평상시 사용이 약 33 이고
- * max_connections 예측이 약 60 이라, 인스턴스당 풀 10 이면 3대에서 63 으로 넘긴다.
- * 3대를 쓰려면 application-coupon.yml 이 풀을 4~5 로 줄여 두어야 한다.
+ * max_connections 가 60 이라, 인스턴스당 풀 10 이면 3대에서 63 으로 넘긴다.
  *
- * 실측 전이므로 예측값 위에 서 있는 숫자다 (OPS-1-11).
+ * 60 은 예측이 아니라 실측값이다 (2026-08-23, pending-decisions 2.2절).
+ * 따라서 3대를 쓰려면 application-coupon.yml 이 풀을 4~5 로 줄이는 것이 필수다.
  */
 variable "coupon_max_size" {
   description = "선착순 전용 ASG 최대 대수"
