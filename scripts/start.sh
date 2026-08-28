@@ -85,7 +85,27 @@ if [ "$mon_id" != "None" ] && [ -n "$mon_id" ]; then
     --query 'Command.CommandId' --output text > /dev/null
 fi
 
-log "3. ASG desired $DESIRED"
+# 올릴 수 있는 버전이 있는지 먼저 본다.
+#
+# current-sha 가 bootstrap 이면 받을 이미지가 없다. 인프라를 내려둔 동안 main 에 머지하면
+# 이미지는 GHCR 에 올라가지만 deploy.sh 가 preflight 에서 멈춰 이 값을 못 채운다.
+#
+# 그대로 desired 를 올리면 없는 태그를 받으려는 인스턴스가 교체를 반복한다.
+# 앱 버그처럼 보이지만 원인은 태그가 없는 것이고, healthy 대기 상한을 태우고서야 드러난다.
+sha=$(aws ssm get-parameter --name "/$PROJECT/current-sha" --region "$REGION" \
+  --query 'Parameter.Value' --output text 2>/dev/null || echo bootstrap)
+
+if [ "$sha" = "bootstrap" ] || [ "$sha" = "unset" ]; then
+  log "3. ASG 를 올리지 않는다. current-sha 가 $sha 라 받을 이미지가 없다"
+  log "   배포를 돌리면 그때 current-sha 가 채워지고 인스턴스가 뜬다."
+  log "     ./scripts/deploy.sh <커밋 SHA>"
+  log "   또는 GitHub Actions 의 배포 워크플로를 다시 실행한다."
+  log "   나머지(RDS, 모니터링, 배치)는 올라와 있다."
+  enable_alarms
+  exit 0
+fi
+
+log "3. ASG desired $DESIRED (이미지 $sha)"
 aws autoscaling set-desired-capacity \
   --auto-scaling-group-name "$PROJECT-app" \
   --desired-capacity "$DESIRED" --region "$REGION"
