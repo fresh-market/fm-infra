@@ -61,7 +61,7 @@ docker run --rm --network host --ulimit nofile=250000:250000 \
 | `COUPON_ID` | `1` | 대상 쿠폰 |
 | `RAMP_SECONDS` | `60` | 요구사항 값 |
 | `USERS` | `20000` | 요구사항 값. 토큰 수와 같아야 한다 |
-| `BROWSE_RPS` | `20` | 격벽 검증용 배경 부하. 0 이면 끈다 |
+| `BROWSE_RPS` | `0` | 격벽 검증용 배경 부하. 끈 상태가 기본이다 |
 | `MAX_VUS` | `2000` | 부족하면 `dropped_iterations` 가 뜬다 |
 
 ## 합격 판정
@@ -82,12 +82,22 @@ coupon_token_exhausted == 0        토큰이 모자라지 않았는가
 **최종 검증은 DB 에서 한다.** k6 는 자기가 보낸 요청만 센다.
 `member_coupon` 수와 `total_quantity` 를 대조하는 것은 앱의 정합성 검증 수단이 맡는다.
 
-## 격벽 검증
+## 격벽 검증 (기본 꺼짐)
+
+**첫 시험에서는 끈다.** 질문이 "초과 발급 0건인가" 하나이므로 변수를 하나만 둔다.
+상품 조회가 함께 돌면 실패했을 때 어느 쪽 문제인지 가리는 데 시간이 든다.
+
+그것이 통과한 뒤에 켜서 따로 본다.
+
+```bash
+BROWSE_RPS=20 ... run coupon-issue.js
+```
 
 `browse_baseline` 시나리오가 선착순이 도는 동안 `GET /v1/products` 를 낮은 도착률로 계속 친다.
 **선착순이 몰리는 동안 상품 조회가 멀쩡해야** 전용 ASG 를 나눈 값을 한 것이다 (`coupon.md` 8장).
 
 `browse_latency` 가 램프 구간에 무너지면 격벽이 새는 것이다.
+이 검증에는 `GET /v1/products` 가 응답할 만큼의 상품 데이터가 적재되어 있어야 한다.
 
 ## 인스턴스 사이징
 
@@ -117,6 +127,17 @@ k6 문서가 드는 VU 당 1~5 MB 보다 훨씬 낮다. 스크립트가 POST 하
 **CPU 는 실측하지 못했다.** 측정을 로컬 더미 서버로 해서 k6 가 거의 놀았다.
 667 RPS 를 2 vCPU 로 만들 수 있는지는 첫 실행에서 `dropped_iterations` 로 확인한다.
 0 이 아니면 `m7i.xlarge` 로 올린다.
+
+## 설정을 확인할 때
+
+`k6 inspect` 는 시스템 환경변수를 읽지 않는다. `__ENV` 가 비어 있어 조건부 시나리오가
+안 붙은 것처럼 보인다. 확인은 `k6 run` 으로 한다. 시작 직후 시나리오 목록을 찍는다.
+
+```
+scenarios: (100.00%) 2 scenarios, ...
+         * browse_baseline: 20.00 iterations/s for 43s ...
+         * coupon_issue: Up to 667.00 iterations/s for 60s over 1 stages ...
+```
 
 ## 메모리 재측정
 

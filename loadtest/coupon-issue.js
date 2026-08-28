@@ -20,8 +20,11 @@ const RAMP = __ENV.RAMP_SECONDS || '60';
 const USERS = Number(__ENV.USERS || 20000);
 const MEASURE = __ENV.MEASURE === '1';
 
-// 평상시 경로에 흘리는 배경 부하. 0 이면 격벽 검증을 건너뛴다.
-const BROWSE_RPS = Number(__ENV.BROWSE_RPS || 20);
+// 평상시 경로에 흘리는 배경 부하. 기본은 끔.
+//
+// 첫 시험의 질문은 초과 발급 0건 하나다. 변수를 하나만 둔다.
+// 격벽 검증은 그것이 통과한 뒤에 BROWSE_RPS 를 주어 따로 본다.
+const BROWSE_RPS = Number(__ENV.BROWSE_RPS || 0);
 
 /*
  * SharedArray 가 아니면 VU 마다 배열 전체가 복제된다.
