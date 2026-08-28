@@ -11,12 +11,23 @@
 
 import http from 'k6/http';
 import exec from 'k6/execution';
+import { sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
 const BASE = __ENV.BASE_URL || 'http://localhost:8080';
 const COUPON_ID = __ENV.COUPON_ID || '1';
 const RAMP = __ENV.RAMP_SECONDS || '60';
+const HOLD = __ENV.HOLD_SECONDS || '30';
+
+/*
+ * vus   동시 사용자 수를 RAMP 초에 걸쳐 USERS 까지 올린다. 요구사항의 ramp-up 해석이다.
+ * rate  도착률만 맞춘다. 서버가 받는 부하는 같고 생성기 메모리를 훨씬 덜 쓴다.
+ *
+ * 서버 입장에서 둘이 구분되지 않는다. 요청을 다 보낸 VU 는 살아 있어도 아무것도 안 보낸다.
+ * 차이는 시연 화면에 20000/20000 VUs 가 찍히느냐이고, 그 대가로 메모리를 약 7 GB 더 쓴다.
+ */
+const MODE = __ENV.MODE || 'vus';
 const USERS = Number(__ENV.USERS || 20000);
 const MEASURE = __ENV.MEASURE === '1';
 
@@ -32,33 +43,56 @@ const BROWSE_RPS = Number(__ENV.BROWSE_RPS || 0);
  */
 const tokens = new SharedArray('tokens', () => JSON.parse(open('./tokens.json')));
 
-/*
- * 0 에서 선형으로 올리면 60초 적분이 사용자 수가 되도록 최고 도착률을 정한다.
- *
- *   면적 = 0.5 * 60 * peak = 20000  ->  peak = 667
- *
- * JMeter 의 "스레드 2만 개를 60초에 걸쳐 시작" 과 같은 모양이다.
- * 1인 1매라 스레드 하나가 요청 하나를 보내므로 그것이 곧 이 램프다.
- */
-const peakRate = Math.ceil((2 * USERS) / Number(RAMP));
-
-const issueScenario = MEASURE
-  ? {
-      // VU 당 메모리를 재는 모드. 도착률 실행기로는 VU 수를 고정할 수 없다.
+function buildScenario() {
+  if (MEASURE) {
+    // VU 당 메모리를 재는 모드. 도착률 실행기로는 VU 수를 고정할 수 없다.
+    return {
       executor: 'constant-vus',
       vus: Number(__ENV.MEASURE_VUS || 100),
       duration: __ENV.MEASURE_DURATION || '30s',
       exec: 'issue',
-    }
-  : {
-      executor: 'ramping-arrival-rate',
-      startRate: 0,
-      timeUnit: '1s',
-      stages: [{ duration: `${RAMP}s`, target: peakRate }],
+    };
+  }
+
+  if (MODE === 'rate') {
+    /*
+     * 60초 동안 정확히 USERS 건을 균등하게 보낸다.
+     * rate 와 timeUnit 을 이렇게 주면 적분이 딱 떨어져 토큰이 남거나 모자라지 않는다.
+     */
+    return {
+      executor: 'constant-arrival-rate',
+      rate: USERS,
+      timeUnit: `${RAMP}s`,
+      duration: `${RAMP}s`,
       preAllocatedVUs: Number(__ENV.PRE_VUS || 500),
       maxVUs: Number(__ENV.MAX_VUS || 2000),
       exec: 'issue',
     };
+  }
+
+  /*
+   * 동시 사용자 수를 USERS 까지 올린다. 요구사항의 ramp-up 을 이렇게 읽은 것이다.
+   *
+   * VU 는 태어나자마자 한 번 쏘고 그 뒤로는 논다. 1인 1매라 또 보내면 alreadyIssued 다.
+   * 도착 시각이 VU 시작 시각과 같고 VU 가 균등하게 태어나므로 도착률도 균등하다.
+   * 서버가 받는 부하는 rate 모드와 구분되지 않는다. 차이는 생성기 메모리뿐이다.
+   *
+   * ramp 뒤에 hold 를 둔다. 마지막 VU 가 60초에 태어나 그 응답을 받을 시간이 필요하고,
+   * 시연에서 20000/20000 이 찍히는 구간이기도 하다.
+   */
+  return {
+    executor: 'ramping-vus',
+    startVUs: 0,
+    stages: [
+      { duration: `${RAMP}s`, target: USERS },
+      { duration: `${HOLD}s`, target: USERS },
+    ],
+    gracefulRampDown: '0s',
+    exec: 'issue',
+  };
+}
+
+const issueScenario = buildScenario();
 
 const scenarios = { coupon_issue: issueScenario };
 
@@ -86,6 +120,7 @@ const congested = new Counter('coupon_congested');
 const notIssuable = new Counter('coupon_not_issuable');
 const rateLimited = new Counter('coupon_rate_limited');
 const unexpected = new Counter('coupon_unexpected');
+const connError = new Counter('coupon_conn_error');
 const tokenExhausted = new Counter('coupon_token_exhausted');
 
 const issueLatency = new Trend('coupon_issue_latency', true);
@@ -106,17 +141,37 @@ export const options = {
         coupon_already_issued: ['count==0'],
         coupon_soldout: ['count>0'],
         coupon_unexpected: ['count==0'],
+        coupon_conn_error: ['count==0'],
         coupon_token_exhausted: ['count==0'],
       },
 };
 
+/*
+ * VU 마다 따로 갖는 상태다. k6 는 VU 마다 JS 컨텍스트를 두므로 모듈 변수가 VU 로컬이 된다.
+ * vus 모드에서 이것이 1인 1매를 지킨다.
+ */
+let fired = false;
+
+const VUS_MODE = MODE === 'vus' && !MEASURE;
+
 export function issue() {
+  if (VUS_MODE) {
+    if (fired) {
+      // 이미 쏜 사용자다. 살아만 있고 아무것도 보내지 않는다.
+      sleep(1);
+      return;
+    }
+    fired = true;
+  }
+
   /*
-   * 도착률 실행기는 VU 를 재활용하므로 __VU 나 __ITER 로는 고유해지지 않는다.
-   * 같은 토큰이 두 번 쓰이면 두 번째는 alreadyIssued 가 되어,
-   * 발급이 아니라 재요청을 측정하게 된다.
+   * 토큰을 무엇으로 나누는지가 모드마다 다르다.
+   *
+   * vus   VU 하나가 사용자 하나다. idInTest 가 1부터 고유하게 붙는다.
+   * rate  VU 를 재활용하므로 VU 번호로는 안 되고 반복 번호를 쓴다.
+   *       같은 토큰이 두 번 쓰이면 발급이 아니라 재요청을 측정하게 된다.
    */
-  const i = exec.scenario.iterationInTest;
+  const i = VUS_MODE ? exec.vu.idInTest - 1 : exec.scenario.iterationInTest;
   if (i >= tokens.length) {
     tokenExhausted.add(1);
     return;
@@ -150,6 +205,18 @@ export function issue() {
     return;
   }
 
+  /*
+   * status 0 은 HTTP 응답이 아니다. 연결이 끊겼거나 맺지 못한 것이다.
+   *
+   * 예상 밖 응답 코드와 뭉치면 진단이 어긋난다. 전자는 앱이 이상한 답을 준 것이고
+   * 후자는 요청이 앱까지 닿지도 못한 것이라 볼 곳이 다르다.
+   * ALB 연결 한도, 생성기의 포트 고갈, 서버 accept 큐가 후자의 후보다.
+   */
+  if (res.status === 0) {
+    connError.add(1);
+    return;
+  }
+
   // 소진만 최종이고 나머지 실패는 다시 시도할 값이 있다. 그래서 나눠 센다.
   if (res.status === 409) soldout.add(1);
   else if (res.status === 503) congested.add(1);
@@ -167,7 +234,7 @@ export function handleSummary(data) {
   const c = (n) => (data.metrics[n] ? data.metrics[n].values.count : 0);
   const total = c('coupon_issued') + c('coupon_already_issued') + c('coupon_soldout')
     + c('coupon_congested') + c('coupon_not_issuable') + c('coupon_rate_limited')
-    + c('coupon_unexpected');
+    + c('coupon_unexpected') + c('coupon_conn_error');
 
   const lines = [
     '',
@@ -179,6 +246,7 @@ export function handleSummary(data) {
     `  불가 422      ${c('coupon_not_issuable')}`,
     `  제한 429      ${c('coupon_rate_limited')}`,
     `  예상 밖       ${c('coupon_unexpected')}`,
+    `  연결 실패     ${c('coupon_conn_error')}   (앱까지 닿지 못한 것)`,
     `  합계          ${total}`,
     '',
     '보낸 부하를 다 보냈는지는 dropped_iterations 를 본다.',

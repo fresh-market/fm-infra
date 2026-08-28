@@ -203,9 +203,11 @@ variable "grafana_https_allowed_cidrs" {
  *
  * load_test 는 x86 이다. k6 는 멀티아키를 제공하므로 제약은 아니고 나머지와 맞춰 둔 것이다.
  *
- * 2 vCPU / 8 GB 는 실측에서 나왔다 (loadtest/README.md).
- * VU 당 0.365 MiB 라 최악 시나리오(응답 10초, 6,670 VU)에도 2.5 GB 다. 3배 여유가 있다.
- * 요구사항의 ramp-up 60s 기준 최고 도착률이 667 RPS 라 그리 높지도 않다.
+ * 4 vCPU / 16 GB 는 실측에서 나왔다 (loadtest/README.md).
+ *
+ * ramp-up 을 "동시 사용자 수가 60초에 걸쳐 2만에 도달" 로 읽었으므로 VU 가 2만 개 뜬다.
+ * 목 서버를 상대로 실제로 돌려 최대 5.0 GB 를 썼다. 8 GB 로도 들어가지만 63% 라 여유가 얇고,
+ * 실제 서버는 응답이 밀려 in-flight 버퍼가 더 잡힌다. 시연 한 번을 날리는 값이 더 크다.
  *
  * 버스터블도 flex 도 쓰지 않는다. 크레딧 때문이 아니라 측정 안정성 때문이다.
  * 회차마다 크레딧 상태가 다르면 같은 코드가 다른 숫자를 낸다.
@@ -220,7 +222,7 @@ variable "instance_types" {
     app        = "t3.small"
     monitoring = "t4g.small"
     batch      = "t3.micro"
-    load_test  = "m7i.large"
+    load_test  = "m7i.xlarge"
   }
 }
 
