@@ -7,6 +7,7 @@
 # 두 경계를 섞으면 앱을 고칠 때마다 이 스크립트를 함께 고쳐야 한다.
 #
 #   ./coupon-event.sh open [대수]   전제를 확인하고 전용 ASG 를 올린다. 기본 2대
+#   ./coupon-event.sh open 3 --force  커넥션 예산을 넘겨도 강행한다
 #   ./coupon-event.sh close         전용 ASG 를 0 으로 내린다
 #   ./coupon-event.sh status        지금 상태만 본다
 #
@@ -72,8 +73,15 @@ status)
 
 open)
   DESIRED="${2:-2}"
+  FORCE="${3:-}"
 
   asg_exists || die "전용 ASG 가 없다. tfvars 에 coupon_dedicated_enabled = true 를 넣고 apply 하라"
+
+  # max_size 를 넘기면 AWS 가 거절하는데 메시지가 불친절하다. 여기서 먼저 막는다.
+  max_size=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$ASG" \
+    --region "$REGION" --query 'AutoScalingGroups[0].MaxSize' --output text)
+  [ "$DESIRED" -le "$max_size" ] \
+    || die "$DESIRED 대는 max_size $max_size 를 넘는다. coupon_max_size 를 올리고 apply 하라"
 
   # 1. 캐시가 판정 주체다. 단일 노드면 이벤트가 그 노드와 함께 멈춘다 (coupon.md 4장).
   log "1. 전제 확인"
@@ -95,11 +103,30 @@ open)
   #    전용 인스턴스가 앱과 같은 풀 10 을 쓰면 3대에서 예산을 넘는다 (coupon.md 5장).
   #    application-coupon.yml 이 풀을 줄였다면 이 경고는 무시해도 된다.
   budget=$(( DESIRED * 10 ))
+  total=$(( budget + 33 ))
   log "2. 커넥션 예산 검산 (풀 10 가정)"
-  log "   전용 ${DESIRED}대가 최대 $budget 개를 더 쓴다. max_connections $MAX_CONNECTIONS"
-  if [ "$(( budget + 33 ))" -gt "$MAX_CONNECTIONS" ]; then
-    log "   경고: 평상시 33 과 합치면 $(( budget + 33 )) 으로 넘긴다"
-    log "   application-coupon.yml 이 풀을 4~5 로 줄였는지 확인하라"
+  log "   전용 ${DESIRED}대가 최대 $budget 개를 더 쓴다. 평상시 33 과 합쳐 $total / $MAX_CONNECTIONS"
+
+  # 넘긴 채로 올리면 실패하는 모양이 헷갈린다.
+  #
+  # Hikari 는 minimum-idle 기본값이 maximum-pool-size 라 기동하면서 10 개를 채우려 든다.
+  # 못 채우면 readiness 가 실패하고 ASG 가 교체하고 새 인스턴스가 같은 벽에 부딪힌다.
+  # 앱 버그와 구분되지 않는 교체 반복으로 나타나고, healthy 대기 상한 600초를 태우고서야 드러난다.
+  #
+  # 풀을 이미 줄였다면 이 검산이 과하므로 --force 로 넘긴다.
+  if [ "$total" -gt "$MAX_CONNECTIONS" ]; then
+    if [ "$FORCE" != "--force" ]; then
+      printf '\n' >&2
+      printf '커넥션 예산을 넘긴다. %s / %s\n' "$total" "$MAX_CONNECTIONS" >&2
+      printf '\n' >&2
+      printf '풀 10 을 가정한 값이다. application-coupon.yml 이 4~5 로 줄였다면 실제로는 넘지 않는다.\n' >&2
+      printf '줄이지 않았다면 %s 번째 인스턴스가 커넥션을 못 잡고 교체를 반복한다.\n' "$DESIRED" >&2
+      printf '앱 버그처럼 보이지만 원인은 커넥션 한도이고, 10분을 태우고서야 드러난다.\n' >&2
+      printf '\n' >&2
+      printf '확인했다면 --force 를 붙여라.  %s open %s --force\n' "$0" "$DESIRED" >&2
+      exit 1
+    fi
+    log "   --force 로 강행한다"
   fi
 
   # 3. 미리 올린다. 스케일링 정책은 버스트를 못 받는다.
