@@ -6,8 +6,8 @@
 # 도메인이 생기면 채운다. 비어 있으면 Route 53 과 ACM 을 만들지 않는다.
 domain_name = ""
 
-# 장애 주입 시험 착수 전에 true 로 올린다. 제자리 변경이라 인스턴스를 다시 만들지 않는다.
-db_multi_az = false
+# 기본값이 true 다. 끌 때만 적는다.
+# db_multi_az = false
 
 # 계정을 여럿 쓴다면 프로파일을 박아 둔다. 잘못된 계정에 apply 하는 사고를 막는다.
 # aws configure --profile freshmarket 로 먼저 만든다.
@@ -30,9 +30,16 @@ grafana_oidc_client_id = ""
 # domain_name 이 생기면 이 값을 비운다.
 duckdns_hostname = ""
 
-# 선착순 이벤트 전에 true 로 올린다. 전용 대상 그룹과 ASG 와 경로 규칙이 함께 생긴다.
-# 끄면 발급 요청이 평상시 앱으로 간다. 되돌리기가 쉬운 것이 이 구조의 이유 중 하나다.
+# 기본값이 true 다. 끌 때만 적는다.
+# 끄면 발급 요청이 평상시 앱으로 가고, 켜 두면 이벤트 밖에서 503 이 된다.
 #
 # 3대를 쓰려면 application-coupon.yml 이 커넥션 풀을 4~5 로 줄여 두어야 한다.
 # 풀이 앱과 같은 10 이면 3대에서 max_connections 예산을 넘긴다 (coupon.md 5장).
-coupon_dedicated_enabled = false
+# coupon_dedicated_enabled = false
+
+# 아래 넷은 기본값이 없거나 환경마다 다르다. tfvars 에 반드시 적어야 한다.
+#
+#   allowed_account_ids       계정마다 다름
+#   alert_email               사람마다 다름
+#   duckdns_hostname          비우면 Caddy 와 EIP 가 사라진다
+#   db_backup_retention_days  프리 티어에서만 낮춘다. 기본값 7 로 두면 apply 가 실패한다
