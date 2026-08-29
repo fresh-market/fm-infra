@@ -24,9 +24,6 @@ REPO="${BACKEND_REPO:-fm-backend}"
 REF="${BACKEND_REF:-main}"
 COUPON_ID="${COUPON_ID:-900001}"
 
-# 클라이언트만 쓴다. 서버는 안 띄운다.
-MYSQL_IMAGE="${MYSQL_IMAGE:-mysql:8.4}"
-
 ACTION="${1:-}"
 BASE_RAW="https://raw.githubusercontent.com/$ORG/$REPO/$REF/loadtest"
 
@@ -40,6 +37,16 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 db_preamble() {
   cat <<'PRE'
 set -euo pipefail
+
+# mysql CLI 를 깐다. 앱은 JDBC 드라이버가 JAR 에 들어 있어 CLI 가 필요 없지만,
+# 시드는 .sql 파일을 통째로 흘려보내는 일이라 CLI 가 해야 한다.
+# 도커 이미지(600 MB)를 받지 않는 이유는 클라이언트 하나 쓰자고 서버까지 받기 때문이다.
+if ! command -v mysql > /dev/null; then
+  echo "-- mysql-client 설치"
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mysql-client
+fi
+
 EP=$(aws ssm get-parameter --name "$P/db-endpoint" --region "$R" --query 'Parameter.Value' --output text)
 export MYSQL_PWD=$(aws ssm get-parameter --name "$P/db-password" --region "$R" --with-decryption --query 'Parameter.Value' --output text)
 HOST=${EP%%:*}
@@ -47,9 +54,11 @@ PRE
 }
 
 # 문자셋을 안 주면 확인 SELECT 의 한글 별칭에서 구문 오류가 난다.
+#
+# 비밀번호는 MYSQL_PWD 로 간다 (db_preamble 이 export 한다).
+# -p 로 주면 ps 에 보이고 SSM 명령 이력에도 남는다.
 mysql_cmd() {
-  printf 'docker run --rm -i -e MYSQL_PWD %s mysql --default-character-set=utf8mb4 -h "$HOST" -u %s %s' \
-    "$MYSQL_IMAGE" "$PROJECT" "$PROJECT"
+  printf 'mysql --default-character-set=utf8mb4 -h "$HOST" -u %s %s' "$PROJECT" "$PROJECT"
 }
 
 # 배치 인스턴스에서 돌리고 끝날 때까지 기다린다.
@@ -63,12 +72,28 @@ run_on_batch() {
     --query 'Reservations[0].Instances[0].InstanceId' --output text)
   [ "$id" != "None" ] && [ -n "$id" ] || die "running 인 배치 인스턴스가 없다. 인프라가 떠 있나"
 
-  # 여러 줄 스크립트를 셸 인용으로 넘기면 반드시 깨진다. JSON 파일로 준다.
+  #
+  # 파일로 써서 bash 로 돌린다. 그냥 넘기면 안 된다.
+  #
+  # AWS-RunShellScript 는 sh(dash)로 실행한다. dash 에는 pipefail 이 없어
+  # "set: Illegal option -o pipefail" 로 즉시 죽는다.
+  #
+  # pipefail 을 빼는 것으로 맞추면 안 된다. 본문이 curl | mysql 이라, 그것이 없으면
+  # curl 이 404 를 받아도 파이프의 끝인 mysql 이 성공하면 전체가 성공으로 보인다.
+  # 시드가 안 들어간 채로 시험이 시작되는데 아무도 모른다.
+  #
+  # 여러 줄 스크립트를 셸 인용으로 넘기는 것도 반드시 깨진다. JSON 파일로 준다.
+  #
   tmp=$(mktemp)
   trap 'rm -f "$tmp"' RETURN
-  P="$PROJECT" R="$REGION" BODY="$body" python3 -c '
+  BODY="$body" python3 -c '
 import json, os
-print(json.dumps({"commands": [os.environ["BODY"]]}))
+body = os.environ["BODY"]
+print(json.dumps({"commands": [
+    "cat > /tmp/loadtest-seed-body.sh <<\"FMSEEDEOF\"\n" + body + "\nFMSEEDEOF",
+    "bash /tmp/loadtest-seed-body.sh",
+    "rm -f /tmp/loadtest-seed-body.sh",
+]}))
 ' > "$tmp"
 
   cmd=$(aws ssm send-command --instance-ids "$id" --document-name AWS-RunShellScript \
