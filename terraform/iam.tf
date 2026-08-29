@@ -75,10 +75,12 @@ data "aws_iam_policy_document" "read_params" {
 }
 
 /*
- * loadtest 도 여기 든다. 부하 생성기가 시나리오를 클론하고 토큰을 그 자리에서 찍는다.
+ * loadtest 도 여기 든다. 부하 생성기가 토큰을 그 자리에서 찍는다.
  *
- *   github-token      fm-backend 의 loadtest/ 를 받는다
  *   jwt-signing-key   mint-tokens.py 가 앱과 같은 키로 2만 장을 찍는다
+ *
+ * 이것 하나만 실제로 쓴다. 시나리오를 받는 데는 자격증명이 필요 없다.
+ * fresh-market/fm-backend 가 public 이라 그냥 클론된다.
  *
  * 토큰을 밖에서 만들어 넣지 않는 이유는 그것이 3.7 MB 이고 실제 서명된 자격증명이기 때문이다.
  * 현장에서 찍으면 네트워크를 건너지 않고 시험이 끝나면 인스턴스와 함께 사라진다.

@@ -52,34 +52,20 @@ locals {
   standalone_user_data = "#!/bin/bash\n${local.common_bootstrap}"
 
   /*
-   * 부하 생성기는 커널 기본값으로 2만 연결을 못 만든다.
-   * 짧은 창에 열고 닫으므로 임시 포트와 파일 디스크립터가 먼저 마르고,
-   * 그러면 서버가 아니라 생성기의 한계를 측정하게 된다. 값은 k6 공식 권고다.
+   * 부하 생성기다. 커널 튜닝과 k6 설치, 시나리오와 토큰 준비까지 한다.
+   *
+   * 시나리오는 fm-backend 가 갖는다 (loadtest/). 발급 경로와 상태 코드, 토큰 클레임,
+   * 스키마에 묶여 있어 백엔드가 바뀌면 같이 바뀌어야 하는 것들이다.
+   * 여기서는 받아 오기만 하고, 레포가 public 이라 토큰 없이 클론한다.
    */
-  load_test_user_data = <<-EOT
-    #!/bin/bash
-    ${local.common_bootstrap}
-
-    cat > /etc/sysctl.d/99-k6.conf <<'SYSCTL'
-    net.ipv4.ip_local_port_range = 1024 65535
-    net.ipv4.tcp_tw_reuse = 1
-    net.ipv4.tcp_timestamps = 1
-    SYSCTL
-    sysctl --system
-
-    cat > /etc/security/limits.d/99-k6.conf <<'LIMITS'
-    * soft nofile 250000
-    * hard nofile 250000
-    LIMITS
-
-    # 로그인 셸과 systemd 양쪽에 걸어야 한다. 한쪽만 올리면 다른 경로에서 기본값이 걸린다.
-    mkdir -p /etc/systemd/system.conf.d
-    cat > /etc/systemd/system.conf.d/99-k6.conf <<'SYSTEMD'
-    [Manager]
-    DefaultLimitNOFILE=250000
-    SYSTEMD
-    systemctl daemon-reexec
-  EOT
+  load_test_user_data = templatefile("${path.module}/templates/load-test-user-data.sh.tftpl", {
+    common_bootstrap = local.common_bootstrap
+    project          = var.project
+    region           = var.region
+    github_org       = var.github_org
+    backend_repo     = var.github_backend_repo
+    alb_dns_name     = aws_lb.main.dns_name
+  })
 
   monitoring_user_data = templatefile("${path.module}/templates/monitoring-user-data.sh.tftpl", {
     common_bootstrap = local.common_bootstrap

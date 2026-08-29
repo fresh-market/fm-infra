@@ -209,14 +209,47 @@ API 계약과 스키마에 붙어 있어 코드와 함께 바뀌기 때문이다
 2만 연결을 짧은 창에 열고 닫으므로 기본값으로는 임시 포트와 파일 디스크립터가 먼저 마른다.
 `ip_local_port_range`, `tcp_tw_reuse`, `nofile 250000` 을 부팅 때 건다.
 
-**컨테이너로 돌리면 호스트 설정이 그대로 적용되지 않는다.** 두 옵션을 붙인다.
+**k6 는 컨테이너로 안 돌린다.** user-data 가 apt 로 직접 깐다. 2만 연결을 만드는 것이 일이라
+호스트의 `nofile` 과 포트 범위를 그대로 써야 하는데, 컨테이너로 두면 위 설정이 안 먹어
+`--ulimit` 와 `--network host` 를 또 맞춰야 하고 네트워크 네임스페이스가 한 겹 더 낀다.
 
-```bash
-docker run --rm --network host --ulimit nofile=250000:250000 \
-  -v "$PWD:/scripts" grafana/k6:1.7.1 run /scripts/coupon-burst.js
+### 시나리오와 토큰은 부팅 때 준비된다
+
+`user_data` 가 `fm-backend` 의 `loadtest/` 를 받고 토큰을 찍어 둔다.
+**레포가 public 이라 자격증명 없이 클론한다.** SSM 에서 읽는 것은 `jwt-signing-key` 하나다.
+
+```
+/opt/loadtest/
+├── fm-backend/loadtest/    시나리오 (issue.js, seed-*.sql, mint-tokens.py)
+│   └── tokens.csv          토큰 2만 장
+├── refresh.sh              다시 받고 다시 찍는다
+├── mint.out                관리자 토큰 (0600)
+├── k6-version.txt          이 회차에 쓴 k6 버전
+└── env                     BASE_URL=http://<alb-dns>
 ```
 
-`--network host` 는 브리지 NAT 를 건너뛴다. 안 붙이면 NAT 테이블에서 포트가 먼저 마른다.
+**시험 직전에 `refresh.sh` 를 한 번 돌려라.**
+
+```bash
+sudo /opt/loadtest/refresh.sh
+```
+
+토큰이 6시간짜리다 (`mint-tokens.py` 의 `VALIDITY_SECONDS`). 인스턴스를 아침에 띄우고
+오후에 시험하면 전부 만료된 채로 시작하고, **401 이 쏟아지는 모양이 앱 장애로 보인다.**
+
+### 돌린다
+
+```bash
+cd /opt/loadtest/fm-backend/loadtest
+source /opt/loadtest/env
+k6 run -e BASE_URL="$BASE_URL" -e COUPON_ID=900001 issue.js
+```
+
+**시드 SQL 은 자동으로 안 들어간다.** DB 에 쓰는 동작이라 부팅 때 돌면 위험해서 뺐다.
+`seed-members.sql` 과 `seed-coupon.sql` 을 먼저 넣고, 이벤트는 관리자 API 로 연다.
+순서는 `fm-backend/loadtest/README.md` 가 갖는다.
+
+**k6 버전을 회차 기록에 함께 적어라.** 아래 메모리 실측이 1.7.1 기준이고 apt 는 최신을 깐다.
 
 ## 선착순 이벤트
 

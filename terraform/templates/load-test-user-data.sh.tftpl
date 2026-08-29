@@ -1,0 +1,134 @@
+#!/bin/bash
+${common_bootstrap}
+
+#
+# 부하 생성기. k6 를 깔고 시나리오와 토큰을 그 자리에 준비한다.
+#
+# 시나리오는 fm-backend 가 갖는다. 발급 경로, 상태 코드, 토큰 클레임, 스키마에 묶여 있어
+# 백엔드가 바뀌면 같이 바뀌어야 하는 것들이다. 여기서는 그것을 받아 오기만 한다.
+#
+
+# 커널 기본값으로는 2만 연결을 못 만든다.
+# 짧은 창에 열고 닫으므로 임시 포트와 파일 디스크립터가 먼저 마르고,
+# 그러면 서버가 아니라 생성기의 한계를 측정하게 된다. 값은 k6 공식 권고다.
+cat > /etc/sysctl.d/99-k6.conf <<'SYSCTL'
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_timestamps = 1
+SYSCTL
+sysctl --system
+
+cat > /etc/security/limits.d/99-k6.conf <<'LIMITS'
+* soft nofile 250000
+* hard nofile 250000
+LIMITS
+
+# 로그인 셸과 systemd 양쪽에 걸어야 한다. 한쪽만 올리면 다른 경로에서 기본값이 걸린다.
+mkdir -p /etc/systemd/system.conf.d
+cat > /etc/systemd/system.conf.d/99-k6.conf <<'SYSTEMD'
+[Manager]
+DefaultLimitNOFILE=250000
+SYSTEMD
+systemctl daemon-reexec
+
+# git 은 시나리오를 받는 데, python3 는 토큰을 찍는 데 쓴다.
+# mint-tokens.py 가 표준 라이브러리만 쓰므로 pip 는 필요 없다.
+apt-get install -y git python3
+
+# k6 는 도커로 안 돌린다.
+#
+# 2만 연결을 만드는 것이 일이라 호스트의 nofile 과 포트 범위를 그대로 써야 한다.
+# 컨테이너로 두면 위에서 올린 한도가 안 먹어 --ulimit 를 또 맞춰야 하고,
+# 네트워크 네임스페이스가 한 겹 더 끼어 재려는 것에 잡음이 섞인다.
+curl -fsSL https://dl.k6.io/key.gpg -o /usr/share/keyrings/k6-archive-keyring.asc
+chmod a+r /usr/share/keyrings/k6-archive-keyring.asc
+echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.asc] https://dl.k6.io/deb stable main" \
+  > /etc/apt/sources.list.d/k6.list
+apt-get update
+apt-get install -y k6
+
+mkdir -p /opt/loadtest
+
+# 어떤 버전으로 쟀는지 남긴다.
+#
+# VU 당 메모리 실측(2026-08-28, 5.0 GB / 2만 VU)이 1.7.1 기준이다. apt 는 최신을 깔므로
+# 회차마다 다를 수 있고, 런타임이 바뀌면 같은 스크립트가 다른 메모리를 쓴다.
+# 회차 기록에 이 값을 함께 적어야 나중에 수치를 비교할 수 있다.
+k6 version > /opt/loadtest/k6-version.txt 2>&1
+
+# ALB 주소를 미리 넣어 둔다. 시험할 때마다 콘솔에서 찾아 오지 않게 하려는 것이다.
+cat > /opt/loadtest/env <<ENVFILE
+BASE_URL=http://${alb_dns_name}
+ENVFILE
+
+#
+# 시나리오와 토큰을 받는 절차를 스크립트로 남긴다.
+#
+# user_data 안에서만 하면 부팅 때 한 번이 끝이다. 토큰이 6시간짜리라
+# (mint-tokens.py 의 VALIDITY_SECONDS) 인스턴스를 아침에 띄우고 오후에 시험하면
+# 전부 만료된 채로 시작한다. 그 경우 401 이 쏟아지는데 앱 문제로 보인다.
+#
+# 시나리오가 바뀌었을 때 다시 받는 경로이기도 하다.
+#
+cat > /opt/loadtest/refresh.sh <<'REFRESH'
+#!/bin/bash
+#
+# 시나리오를 다시 받고 토큰을 다시 찍는다. 시험 직전에 한 번 돌린다.
+#
+#   sudo /opt/loadtest/refresh.sh
+#   sudo TOKEN_COUNT=5000 /opt/loadtest/refresh.sh
+#
+set -euo pipefail
+
+P=/__PROJECT__
+R=__REGION__
+REPO=https://github.com/__ORG__/__BACKEND_REPO__.git
+DIR=/opt/loadtest/fm-backend
+
+sec() {
+  aws ssm get-parameter --name "$P/$1" --region "$R" \
+    --with-decryption --query 'Parameter.Value' --output text
+}
+
+# 레포가 public 이라 토큰이 필요 없다.
+# blob 을 미루고 loadtest 만 꺼내 온다. 전체 히스토리를 받을 이유가 없다.
+if [ -d "$DIR/.git" ]; then
+  echo "이미 있다. 최신으로 맞춘다"
+  git -C "$DIR" fetch --depth 1 origin main
+  git -C "$DIR" reset --hard origin/main
+else
+  git clone --depth 1 --filter=blob:none --sparse "$REPO" "$DIR"
+  git -C "$DIR" sparse-checkout set loadtest
+fi
+
+echo "시나리오 $(git -C "$DIR" rev-parse --short HEAD)"
+
+#
+# 토큰을 여기서 찍는다.
+#
+# 밖에서 만들어 넣지 않는 이유는 2만 장이 3.7 MB 이고 실제로 서명된 자격증명이기 때문이다.
+# 현장에서 찍으면 네트워크를 건너지 않고 인스턴스가 사라질 때 함께 사라진다.
+#
+# 출력을 로그로 흘리지 않는다. 마지막 줄이 관리자 토큰이라 user-data.log 에 남으면 안 된다.
+#
+COUNT="$${TOKEN_COUNT:-20000}"
+JWT_SECRET="$(sec jwt-signing-key)" TOKEN_COUNT="$COUNT" \
+  python3 "$DIR/loadtest/mint-tokens.py" > /opt/loadtest/mint.out 2>&1
+chmod 600 /opt/loadtest/mint.out
+
+chown -R ubuntu:ubuntu /opt/loadtest
+
+echo "토큰 $COUNT 장. 관리자 토큰은 /opt/loadtest/mint.out 에 있다"
+echo "돌리기 전에 시드 SQL 을 넣었는지 확인하라. 이 스크립트는 DB 를 건드리지 않는다"
+REFRESH
+
+# 템플릿이 아니라 부팅 때 값을 박는다. Terraform 의 ${"$"}{} 와 bash 의 것이 섞이지 않게 하려는 것이다.
+sed -i "s|__PROJECT__|${project}|; s|__REGION__|${region}|; s|__ORG__|${github_org}|; s|__BACKEND_REPO__|${backend_repo}|" \
+  /opt/loadtest/refresh.sh
+chmod +x /opt/loadtest/refresh.sh
+
+# 부팅 때 한 번 받아 둔다. 실패해도 인스턴스는 살려 둔다.
+# 여기서 죽이면 SSM 으로 들어가 원인을 볼 수도 없다.
+/opt/loadtest/refresh.sh || echo "refresh 실패. 접속해서 직접 돌려라"
+
+chown -R ubuntu:ubuntu /opt/loadtest
