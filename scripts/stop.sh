@@ -28,10 +28,11 @@ aws cloudwatch disable-alarm-actions --region "$REGION" \
 
 # 1. 앱을 먼저 내린다.
 #    stop-instances 를 쓰면 ASG 가 비정상으로 보고 교체해 세션을 끝낼 수 없다 (INF-23).
-log "1. ASG desired 0"
-aws autoscaling set-desired-capacity \
+#    min 을 함께 내려야 한다. min 1 인 채로 desired 0 을 주면 AWS 가 거절한다.
+log "1. ASG min 0 / desired 0"
+aws autoscaling update-auto-scaling-group \
   --auto-scaling-group-name "$PROJECT-app" \
-  --desired-capacity 0 --region "$REGION"
+  --min-size 0 --desired-capacity 0 --region "$REGION"
 
 # 2. 관측 데이터 내보내기는 사람이 판단한다.
 #    모니터링 인스턴스는 stop 이라 EBS 가 남지만, 인스턴스를 잃을 상황에 대비한 안내다.

@@ -184,22 +184,24 @@ resource "aws_launch_template" "app" {
 }
 
 /*
- * 앱을 2대로 운영한다 (INF-28 이 열어 둔 전환을 켠 것이다).
+ * 트래픽에 따라 1~3 대로 움직인다. 고정 이중화가 아니라 오토스케일링이다.
  *
- * max_size 는 desired + 1 이어야 배포 절차가 성립한다. 신규를 먼저 띄우고 구 것을 내리므로
- * 배포 중 일시적으로 한 대가 더 붙는다. 그 자리가 없으면 배포가 멈춘다.
+ * min_size 가 1 이다. 0 이면 트래픽이 없을 때 정책이 스케일 인으로 0 까지 내려
+ * 서비스가 사라진다. 세션을 끝낼 때는 stop.sh 가 min 을 0 으로 내린 뒤 desired 를 0 으로 준다.
  *
- * 커넥션은 여유가 있다. 풀 10 이라 2대가 20 이고, 배치 10 과 익스포터 5 를 더해도
- * 배포 중 45 다. max_connections 실측 60 안에 든다.
+ * max_size 3 이 확장 상한이자 배포 여유를 겸한다. deploy.sh 가 desired + 1 로 신규를 띄우므로,
+ * 3 대까지 올라간 상태에서는 배포가 막힌다. 드문 경우이고 스케일 인을 기다리면 풀린다.
+ * 4 로 올리지 않는 것은 커넥션 때문이다. 배포 중 4 대면 40 이고 배치와 익스포터를 더해 55,
+ * 선착순 이벤트가 겹치면 61 로 실측 60 을 넘긴다.
  *
- * desired_capacity 는 배포 스크립트가 조절한다. Terraform 이 되돌리면 배포가 깨진다.
+ * desired_capacity 는 배포 스크립트와 정책이 조절한다. Terraform 이 되돌리면 배포가 깨진다.
  */
 resource "aws_autoscaling_group" "app" {
   name                = "${var.project}-app"
   vpc_zone_identifier = [for s in aws_subnet.public : s.id]
 
-  min_size         = 0
-  desired_capacity = 2
+  min_size         = 1
+  desired_capacity = 1
   max_size         = 3
 
   # ELB 헬스체크를 본다. 프로세스는 살아 있는데 응답을 못 하는 경우를 잡는다.
@@ -361,5 +363,28 @@ resource "aws_autoscaling_policy" "coupon_requests" {
 
     # 줄이는 쪽을 늦게 잡는다. 이벤트 중 잠깐 잦아들었다고 내리면 다음 파도를 못 받는다.
     disable_scale_in = true
+  }
+}
+
+/*
+ * 트래픽으로 앱을 늘린다. 선착순 전용 ASG 의 정책과 같은 지표를 쓴다.
+ *
+ * 스케일 인을 막지 않는다. 선착순은 이벤트 중 잠깐 잦아들었다고 내리면 다음 파도를 못 받아
+ * 막아 두었지만, 일반 경로는 상시 서비스라 부하가 빠지면 내려가는 것이 맞다.
+ *
+ * 이 정책이 CloudWatch 알람 2개를 자동으로 만든다. INF-31 의 무료 한도에 함께 계산한다.
+ */
+resource "aws_autoscaling_policy" "app_requests" {
+  name                   = "${var.project}-app-requests"
+  autoscaling_group_name = aws_autoscaling_group.app.name
+  policy_type            = "TargetTrackingScaling"
+
+  target_tracking_configuration {
+    predefined_metric_specification {
+      predefined_metric_type = "ALBRequestCountPerTarget"
+      resource_label         = "${aws_lb.main.arn_suffix}/${aws_lb_target_group.app.arn_suffix}"
+    }
+
+    target_value = var.app_target_requests_per_instance
   }
 }

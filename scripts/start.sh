@@ -12,8 +12,8 @@ set -euo pipefail
 
 PROJECT="${PROJECT:-freshmarket}"
 REGION="${AWS_REGION:-ap-northeast-2}"
-# 앱은 2대로 운영한다. 한 대만 올리려면 DESIRED=1 로 부른다.
-DESIRED="${DESIRED:-2}"
+# 오토스케일링이 여기서부터 트래픽에 따라 올린다.
+DESIRED="${DESIRED:-1}"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
@@ -106,10 +106,11 @@ if [ "$sha" = "bootstrap" ] || [ "$sha" = "unset" ]; then
   exit 0
 fi
 
-log "3. ASG desired $DESIRED (이미지 $sha)"
-aws autoscaling set-desired-capacity \
+# stop.sh 가 min 을 0 으로 내려 두었다. 함께 되돌리지 않으면 정책이 0 까지 스케일 인한다.
+log "3. ASG min 1 / desired $DESIRED (이미지 $sha)"
+aws autoscaling update-auto-scaling-group \
   --auto-scaling-group-name "$PROJECT-app" \
-  --desired-capacity "$DESIRED" --region "$REGION"
+  --min-size 1 --desired-capacity "$DESIRED" --region "$REGION"
 
 # 4. readiness 확인. 배포 절차의 사전 점검과 같은 것을 본다.
 log "4. 대상 그룹 healthy 대기 (상한 600초)"
