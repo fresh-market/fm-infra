@@ -52,6 +52,8 @@ k6_http_req_duration_p99
 k6_http_req_duration_p95
 k6_http_req_duration_avg
 k6_http_req_waiting_p99
+k6_http_req_blocked_p99
+k6_http_req_connecting_p99
 k6_http_req_failed_rate
 k6_vus
 k6_dropped_iterations_total
@@ -62,8 +64,12 @@ k6_coupon_congested_total
 k6_coupon_rejected_total
 k6_coupon_unexpected_total
 k6_coupon_connect_failed_total
+coupon_issue_queue_size
+coupon_issue_results_total
 jvm_memory_used_bytes
 jvm_gc_pause_seconds_count
+jvm_threads_live_threads
+jvm_threads_peak_threads
 jvm_threads_live_threads
 hikaricp_connections_active
 hikaricp_connections_pending
@@ -226,6 +232,7 @@ checks = [
     ('k6_coupon_connect_failed_total', '연결 실패', max),
     ('k6_http_req_duration_p99', 'p99 (초)', max),
     ('hikaricp_connections_pending', '커넥션 대기 최대', max),
+    ('coupon_issue_queue_size', '발급 큐 최대', max),
 ]
 for name, label, fn in checks:
     r = series(name)
@@ -234,6 +241,24 @@ for name, label, fn in checks:
         continue
     vals = [float(v) for s in r for _, v in s['values']]
     print("  %-18s %s" % (label, round(fn(vals), 4) if vals else '-'))
+
+print()
+print("혼잡의 원인별 내역")
+r = series('coupon_issue_results_total')
+if not r:
+    print("  (없음. coupon job 이 스크랩되고 있나)")
+else:
+    tot = {}
+    for s_ in r:
+        k = s_['metric'].get('result', '?')
+        vals = [float(v) for _, v in s_['values']]
+        if vals:
+            tot[k] = tot.get(k, 0) + (max(vals) - min(vals))
+    for k, v in sorted(tot.items(), key=lambda x: -x[1]):
+        if v > 0:
+            print("  %-28s %10.0f" % (k, v))
+    if not any(v > 0 for v in tot.values()):
+        print("  (구간 내 증가 없음)")
 
 print()
 print("읽는 법")
