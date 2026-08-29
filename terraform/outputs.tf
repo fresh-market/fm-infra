@@ -19,13 +19,13 @@ output "security_group_ids" {
   description = "역할별 보안 그룹 ID"
 
   value = {
-    alb   = aws_security_group.alb.id
-    app   = aws_security_group.app.id
-    db    = aws_security_group.db.id
-    cache = aws_security_group.cache.id
-    mon   = aws_security_group.mon.id
-    batch = aws_security_group.batch.id
-    lt    = aws_security_group.lt.id
+    alb      = aws_security_group.alb.id
+    app      = aws_security_group.app.id
+    db       = aws_security_group.db.id
+    cache    = aws_security_group.cache.id
+    mon      = aws_security_group.mon.id
+    batch    = aws_security_group.batch.id
+    loadtest = aws_security_group.loadtest.id
   }
 }
 

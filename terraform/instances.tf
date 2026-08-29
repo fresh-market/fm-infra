@@ -98,8 +98,8 @@ resource "aws_instance" "load_test" {
   ami                    = data.aws_ami.ubuntu_x86.id
   instance_type          = var.instance_types["load_test"]
   subnet_id              = aws_subnet.public["a"].id
-  vpc_security_group_ids = [aws_security_group.lt.id]
-  iam_instance_profile   = aws_iam_instance_profile.instance["lt"].name
+  vpc_security_group_ids = [aws_security_group.loadtest.id]
+  iam_instance_profile   = aws_iam_instance_profile.instance["loadtest"].name
   user_data_base64       = base64encode(local.load_test_user_data)
 
   root_block_device {

@@ -10,13 +10,13 @@
  */
 locals {
   sg_names = {
-    alb   = "public entry point. 443 and 80 from internet"
-    app   = "8080 from ALB, 8081 from ALB and monitoring"
-    db    = "3306 from app, batch, monitoring"
-    cache = "6379 from app and monitoring"
-    mon   = "3100 only. Alloy pushes logs to Loki"
-    batch = "no inbound"
-    lt    = "no inbound"
+    alb      = "public entry point. 443 and 80 from internet"
+    app      = "8080 from ALB, 8081 from ALB and monitoring"
+    db       = "3306 from app, batch, monitoring"
+    cache    = "6379 from app and monitoring"
+    mon      = "3100 only. Alloy pushes logs to Loki"
+    batch    = "no inbound"
+    loadtest = "no inbound"
   }
 }
 
@@ -80,9 +80,9 @@ resource "aws_security_group" "batch" {
   }
 }
 
-resource "aws_security_group" "lt" {
+resource "aws_security_group" "loadtest" {
   name        = "${var.project}-lt"
-  description = local.sg_names.lt
+  description = local.sg_names.loadtest
   vpc_id      = aws_vpc.main.id
 
   tags = {
@@ -252,13 +252,13 @@ resource "aws_vpc_security_group_ingress_rule" "cache_from_mon" {
  */
 resource "aws_vpc_security_group_egress_rule" "all" {
   for_each = {
-    alb   = aws_security_group.alb.id
-    app   = aws_security_group.app.id
-    db    = aws_security_group.db.id
-    cache = aws_security_group.cache.id
-    mon   = aws_security_group.mon.id
-    batch = aws_security_group.batch.id
-    lt    = aws_security_group.lt.id
+    alb      = aws_security_group.alb.id
+    app      = aws_security_group.app.id
+    db       = aws_security_group.db.id
+    cache    = aws_security_group.cache.id
+    mon      = aws_security_group.mon.id
+    batch    = aws_security_group.batch.id
+    loadtest = aws_security_group.loadtest.id
   }
 
   security_group_id = each.value

@@ -15,7 +15,7 @@ locals {
     app        = "app. read parameters and access media bucket"
     monitoring = "monitoring. read parameters and CloudWatch metrics"
     batch      = "batch. read parameters"
-    lt         = "load test. session access only"
+    loadtest   = "load test. read parameters"
   }
 }
 
@@ -74,8 +74,21 @@ data "aws_iam_policy_document" "read_params" {
   }
 }
 
+/*
+ * loadtest 도 여기 든다. 부하 생성기가 시나리오를 클론하고 토큰을 그 자리에서 찍는다.
+ *
+ *   github-token      fm-backend 의 loadtest/ 를 받는다
+ *   jwt-signing-key   mint-tokens.py 가 앱과 같은 키로 2만 장을 찍는다
+ *
+ * 토큰을 밖에서 만들어 넣지 않는 이유는 그것이 3.7 MB 이고 실제 서명된 자격증명이기 때문이다.
+ * 현장에서 찍으면 네트워크를 건너지 않고 시험이 끝나면 인스턴스와 함께 사라진다.
+ *
+ * 범위를 좁히지 않았다. 어차피 jwt-signing-key 를 줘야 하는데 그것이 가장 무거운 것이라
+ * 나머지를 막아 버는 것이 크지 않다. db-password 는 SG 가 RDS 에 닿는 것을 막아 이미 쓸모가 없다.
+ * 부하 생성기는 설계상 2만 명을 사칭하는 기계이고 시험 시간에만 뜬다.
+ */
 resource "aws_iam_role_policy" "read_params" {
-  for_each = toset(["app", "monitoring", "batch"])
+  for_each = toset(["app", "monitoring", "batch", "loadtest"])
 
   name   = "read-params"
   role   = aws_iam_role.instance[each.key].id
