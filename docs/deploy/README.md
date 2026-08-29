@@ -264,8 +264,44 @@ p99 가 튄 이유를 읽을 수 있다. 부하 시험에서 알고 싶은 것�
 CSV 도 함께 남기려면 `--out csv=result.csv` 를 붙인다. 둘 다 된다.
 
 **시드 SQL 은 자동으로 안 들어간다.** DB 에 쓰는 동작이라 부팅 때 돌면 위험해서 뺐다.
-`seed-members.sql` 과 `seed-coupon.sql` 을 먼저 넣고, 이벤트는 관리자 API 로 연다.
-순서는 `fm-backend/loadtest/README.md` 가 갖는다.
+아래 순서로 먼저 넣는다.
+
+### 시드는 배치 인스턴스를 거친다
+
+`scripts/loadtest-seed.sh` 가 한다.
+
+```bash
+./scripts/loadtest-seed.sh apply     # 회원 2만, 쿠폰 900001, 주변 데이터
+./scripts/loadtest-seed.sh verify    # 몇 장이 나갔는지
+./scripts/loadtest-seed.sh reset     # 회차 사이 되돌리기
+```
+
+**부하 생성기는 RDS 에 못 붙는다.** SG 가 3306 을 막아 두었고 그대로 둔다. 2만 명을 사칭하는
+기계에 DB 자격증명까지 줄 이유가 없다. 그래서 배치 인스턴스에 SSM Run Command 로 붙는다.
+DB 에 닿을 수 있는 것 중 이 일에 가장 가깝다. 앱은 ASG 가 언제든 갈아치우고 모니터링은 관측용이다.
+
+SQL 은 `raw.githubusercontent.com` 에서 바로 받는다. 레포가 public 이라 자격증명이 없고,
+**시나리오와 같은 커밋의 시드를 쓰게 되어 둘이 어긋나지 않는다.** 다른 커밋을 쓰려면 `BACKEND_REF` 로 준다.
+
+비밀번호는 `MYSQL_PWD` 로 넘긴다. 명령줄에 놓으면 `ps` 에 보이고 SSM 명령 이력에도 남는다.
+
+### 전체 순서
+
+| | 무엇 | 어디서 |
+|---|---|---|
+| 1 | 시드 주입 | `loadtest-seed.sh apply` (로컬에서) |
+| 2 | 토큰 찍기 | `sudo /opt/loadtest/refresh.sh` (생성기에서) |
+| 3 | 전용 ASG 올리기 | `coupon-event.sh open 3` (로컬에서) |
+| 4 | 이벤트 열기 | 앱의 관리자 API |
+| 5 | 시험 | `k6 run ...` (생성기에서) |
+| 6 | 결과 확인 | `loadtest-seed.sh verify` + Grafana |
+| 7 | 되돌리기 | `loadtest-seed.sh reset`, `coupon-event.sh close` |
+
+**4번을 SQL 로 대신하면 안 된다.** `is_active` 만 켜면 카운터 없는 Redis 를 요청이 쳐서
+전부 "준비되지 않음" 으로 끝난다. 여는 API 가 Redis 를 세우는 것이 핵심이다.
+
+로컬에서 도는 절차는 `fm-backend/loadtest/README.md` 가 따로 갖는다. 그쪽은 `docker exec` 로
+컨테이너 MySQL 에 붓는 방식이라 여기와 다르다.
 
 **k6 버전을 회차 기록에 함께 적어라.** 아래 메모리 실측이 1.7.1 기준이고 apt 는 최신을 깐다.
 
