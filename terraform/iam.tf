@@ -75,26 +75,64 @@ data "aws_iam_policy_document" "read_params" {
 }
 
 /*
- * loadtest 도 여기 든다. 부하 생성기가 토큰을 그 자리에서 찍는다.
+ * 부하 생성기만 범위를 좁힌다. 파라미터 두 개만 읽는다.
  *
- *   jwt-signing-key   mint-tokens.py 가 앱과 같은 키로 2만 장을 찍는다
+ *   jwt-signing-key       mint-tokens.py 가 앱과 같은 키로 2만 장을 찍는다
+ *   prometheus-endpoint   결과를 remote write 로 밀 주소다
  *
- * 이것 하나만 실제로 쓴다. 시나리오를 받는 데는 자격증명이 필요 없다.
- * fresh-market/fm-backend 가 public 이라 그냥 클론된다.
+ * 시나리오를 받는 데는 자격증명이 필요 없다. fm-backend 가 public 이라 그냥 클론된다.
  *
  * 토큰을 밖에서 만들어 넣지 않는 이유는 그것이 3.7 MB 이고 실제 서명된 자격증명이기 때문이다.
  * 현장에서 찍으면 네트워크를 건너지 않고 시험이 끝나면 인스턴스와 함께 사라진다.
  *
- * 범위를 좁히지 않았다. 어차피 jwt-signing-key 를 줘야 하는데 그것이 가장 무거운 것이라
- * 나머지를 막아 버는 것이 크지 않다. db-password 는 SG 가 RDS 에 닿는 것을 막아 이미 쓸모가 없다.
- * 부하 생성기는 설계상 2만 명을 사칭하는 기계이고 시험 시간에만 뜬다.
+ * 전에는 이 역할도 /project/* 를 통째로 읽었고, 좁히지 않는 근거를 "어차피 jwt-signing-key 를
+ * 줘야 하니 나머지를 막아 버는 것이 크지 않다" 로 적어 두었다. 그 논리는 db-password 에만 맞다.
+ * 그것은 SG 가 RDS 3306 을 막아 못 쓰지만, github-token 과 ghcr-token 과 kakao-admin-key 는
+ * 인터넷만 있으면 쓰이므로 SG 가 아무것도 막지 못한다.
+ *
+ * 부하 생성기는 설계상 2만 명을 사칭하는 기계다. 거기에 조직 레포 쓰기 권한과 카카오 관리 키를
+ * 함께 두는 것과, 서명 키 하나만 두는 것은 사고가 났을 때 크기가 다르다.
+ */
+data "aws_iam_policy_document" "read_params_loadtest" {
+  statement {
+    effect  = "Allow"
+    actions = ["ssm:GetParameter", "ssm:GetParameters"]
+
+    resources = [
+      for n in ["jwt-signing-key", "prometheus-endpoint"] :
+      "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.ssm_prefix}/${n}"
+    ]
+  }
+
+  # jwt-signing-key 가 SecureString 이라 이것 없이는 못 읽는다.
+  statement {
+    effect    = "Allow"
+    actions   = ["kms:Decrypt"]
+    resources = ["arn:aws:kms:${var.region}:${data.aws_caller_identity.current.account_id}:key/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["ssm.${var.region}.amazonaws.com"]
+    }
+  }
+}
+
+/*
+ * 나머지 셋은 값 목록이 자주 늘어 통째로 준다. 앱은 12개를 거의 다 읽고,
+ * 하나 추가할 때마다 정책을 고치면 빠뜨려서 기동이 막히는 쪽이 더 잦다.
  */
 resource "aws_iam_role_policy" "read_params" {
-  for_each = toset(["app", "monitoring", "batch", "loadtest"])
+  for_each = {
+    app        = data.aws_iam_policy_document.read_params.json
+    monitoring = data.aws_iam_policy_document.read_params.json
+    batch      = data.aws_iam_policy_document.read_params.json
+    loadtest   = data.aws_iam_policy_document.read_params_loadtest.json
+  }
 
   name   = "read-params"
   role   = aws_iam_role.instance[each.key].id
-  policy = data.aws_iam_policy_document.read_params.json
+  policy = each.value
 }
 
 # presigned URL 발급과 이미지 삭제에 쓴다. 버킷 전체를 나열할 이유는 없다.
