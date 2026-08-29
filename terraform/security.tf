@@ -81,12 +81,12 @@ resource "aws_security_group" "batch" {
 }
 
 resource "aws_security_group" "loadtest" {
-  name        = "${var.project}-lt"
+  name        = "${var.project}-loadtest"
   description = local.sg_names.loadtest
   vpc_id      = aws_vpc.main.id
 
   tags = {
-    Name = "${var.project}-lt"
+    Name = "${var.project}-loadtest"
   }
 }
 
