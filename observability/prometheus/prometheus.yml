@@ -48,6 +48,32 @@ scrape_configs:
       - source_labels: [__meta_ec2_tag_Name]
         target_label: instance
 
+  #
+  # 선착순 전용 인스턴스다. app 과 나누는 이유는 필터가 tag:Role 이기 때문이다.
+  #
+  # 이것이 없어 1차 부하 시험(2026-08-30)에서 정작 시험 대상의 앱 지표를 하나도 못 받았다.
+  # node 와 cadvisor 는 Role 을 값으로 안 걸러서 잡혔는데 app 과 batch 는 값을 박아 두어
+  # coupon 이 어디에도 안 들어갔다. 호스트 지표만 보이니 빠진 줄도 몰랐다.
+  #
+  # SG 는 손댈 것이 없다. 전용 인스턴스가 aws_security_group.app 을 그대로 쓰므로
+  # 8081 인바운드(app_mgmt_from_mon)가 이미 적용된다.
+  - job_name: coupon
+    metrics_path: /actuator/prometheus
+    ec2_sd_configs:
+      - region: ap-northeast-2
+        port: 8081
+        filters:
+          - name: tag:Role
+            values: [coupon]
+          - name: instance-state-name
+            values: [running]
+    relabel_configs:
+      - source_labels: [__meta_ec2_tag_Name]
+        target_label: instance
+      # 전용 ASG 는 대수가 바뀌므로 인스턴스 id 를 남겨야 어느 대의 값인지 읽을 수 있다.
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
+
   # 호스트 지표. CPU 크레딧이 여기서 나온다.
   - job_name: node
     ec2_sd_configs:

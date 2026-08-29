@@ -72,7 +72,8 @@ cat > /opt/loadtest/env <<ENVFILE
 BASE_URL=http://${alb_dns_name}
 K6_PROMETHEUS_RW_SERVER_URL=http://__PROM__:9090/api/v1/write
 K6_PROMETHEUS_RW_PUSH_INTERVAL=5s
-K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),avg,max
+# 괄호가 있어 따옴표가 필요하다. 없으면 이 파일을 source 할 때 구문 오류가 난다.
+K6_PROMETHEUS_RW_TREND_STATS="p(95),p(99),avg,max"
 ENVFILE
 
 # Prometheus 주소는 부팅 때 SSM 에서 읽는다. 템플릿에 IP 를 박으면 모니터링을
@@ -110,6 +111,16 @@ sec() {
     --with-decryption --query 'Parameter.Value' --output text
 }
 
+# 이 스크립트는 root 로 도는데 /opt/loadtest 는 ubuntu 소유다 (마지막의 chown).
+# 그대로 두면 git 이 "detected dubious ownership" 으로 거부한다.
+# 부팅 때는 chown 전이라 통과하고 나중에 손으로 부를 때만 걸리므로 알아채기 어렵다.
+#
+# git config --global 로는 못 고친다. SSM Run Command 환경에는 HOME 이 없어서
+# "fatal: $HOME not set" 으로 그것부터 실패한다. 환경 변수로 주면 파일을 안 쓴다.
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=safe.directory
+export GIT_CONFIG_VALUE_0="$DIR"
+
 # 레포가 public 이라 토큰이 필요 없다.
 # blob 을 미루고 loadtest 만 꺼내 온다. 전체 히스토리를 받을 이유가 없다.
 if [ -d "$DIR/.git" ]; then
@@ -121,7 +132,9 @@ else
   git -C "$DIR" sparse-checkout set loadtest
 fi
 
-echo "시나리오 $(git -C "$DIR" rev-parse --short HEAD)"
+sha=$(git -C "$DIR" rev-parse --short HEAD)
+[ -n "$sha" ] || { echo "커밋을 못 읽었다. 위 오류를 보라" >&2; exit 1; }
+echo "시나리오 $sha"
 
 #
 # 토큰을 여기서 찍는다.
