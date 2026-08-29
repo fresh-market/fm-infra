@@ -25,6 +25,15 @@ TG="$PROJECT-coupon"
 # max_connections 실측값이다 (2026-08-23, pending-decisions 2.2절).
 MAX_CONNECTIONS=60
 
+# 백엔드가 프로필별로 정한 풀 크기다 (application.yml, -batch, -coupon 의 maximum-pool-size).
+# 저쪽이 바뀌면 여기도 바꾼다. 어긋나면 검산이 조용히 틀린다.
+APP_POOL=8
+BATCH_POOL=4
+COUPON_POOL=2
+
+# 익스포터와 운영자 접속 몫이다. 실측이 아니라 잡아 둔 여유다.
+ADMIN_RESERVE=3
+
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -100,27 +109,35 @@ open)
   log "   RDS $db"
 
   # 2. 커넥션 예산. 넘기면 늘린 인스턴스가 커넥션을 못 잡고 교체가 반복된다.
-  #    전용 인스턴스가 앱과 같은 풀 10 을 쓰면 3대에서 예산을 넘는다 (coupon.md 5장).
-  #    application-coupon.yml 이 풀을 줄였다면 이 경고는 무시해도 된다.
-  budget=$(( DESIRED * 10 ))
-  total=$(( budget + 33 ))
-  log "2. 커넥션 예산 검산 (풀 10 가정)"
-  log "   전용 ${DESIRED}대가 최대 $budget 개를 더 쓴다. 평상시 33 과 합쳐 $total / $MAX_CONNECTIONS"
+  #
+  #    풀 크기는 백엔드가 프로필별로 정한 값이다 (application-*.yml).
+  #    앱 8, 배치 4, 선착순 2 다. 여기 값과 어긋나면 이 검산이 헛돈다.
+  #
+  #    앱은 오토스케일링이라 이벤트 중 몇 대일지 모른다. 상한을 써서 최악으로 잡는다.
+  app_max=$(aws autoscaling describe-auto-scaling-groups \
+    --auto-scaling-group-names "$PROJECT-app" --region "$REGION" \
+    --query 'AutoScalingGroups[0].MaxSize' --output text)
+
+  budget=$(( DESIRED * COUPON_POOL ))
+  baseline=$(( app_max * APP_POOL + BATCH_POOL + ADMIN_RESERVE ))
+  total=$(( budget + baseline ))
+
+  log "2. 커넥션 예산 검산"
+  log "   앱 최대 ${app_max}대 x $APP_POOL + 배치 $BATCH_POOL + 관리 $ADMIN_RESERVE = $baseline"
+  log "   전용 ${DESIRED}대가 $budget 을 더해 $total / $MAX_CONNECTIONS"
 
   # 넘긴 채로 올리면 실패하는 모양이 헷갈린다.
   #
-  # Hikari 는 minimum-idle 기본값이 maximum-pool-size 라 기동하면서 10 개를 채우려 든다.
   # 못 채우면 readiness 가 실패하고 ASG 가 교체하고 새 인스턴스가 같은 벽에 부딪힌다.
   # 앱 버그와 구분되지 않는 교체 반복으로 나타나고, healthy 대기 상한 600초를 태우고서야 드러난다.
-  #
-  # 풀을 이미 줄였다면 이 검산이 과하므로 --force 로 넘긴다.
   if [ "$total" -gt "$MAX_CONNECTIONS" ]; then
     if [ "$FORCE" != "--force" ]; then
       printf '\n' >&2
       printf '커넥션 예산을 넘긴다. %s / %s\n' "$total" "$MAX_CONNECTIONS" >&2
       printf '\n' >&2
-      printf '풀 10 을 가정한 값이다. application-coupon.yml 이 4~5 로 줄였다면 실제로는 넘지 않는다.\n' >&2
-      printf '줄이지 않았다면 %s 번째 인스턴스가 커넥션을 못 잡고 교체를 반복한다.\n' "$DESIRED" >&2
+      printf '풀 크기가 앱 %s / 배치 %s / 선착순 %s 라는 가정이다.\n' "$APP_POOL" "$BATCH_POOL" "$COUPON_POOL" >&2
+      printf 'application-*.yml 이 더 줄였다면 실제로는 안 넘긴다. 그 경우 이 스크립트의 상수를 맞춰라.\n' >&2
+      printf '맞다면 %s 번째 인스턴스가 커넥션을 못 잡고 교체를 반복한다.\n' "$DESIRED" >&2
       printf '앱 버그처럼 보이지만 원인은 커넥션 한도이고, 10분을 태우고서야 드러난다.\n' >&2
       printf '\n' >&2
       printf '확인했다면 --force 를 붙여라.  %s open %s --force\n' "$0" "$DESIRED" >&2

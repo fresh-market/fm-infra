@@ -33,8 +33,8 @@ duckdns_hostname = ""
 # 기본값이 true 다. 끌 때만 적는다.
 # 끄면 발급 요청이 평상시 앱으로 가고, 켜 두면 이벤트 밖에서 503 이 된다.
 #
-# 3대를 쓰려면 application-coupon.yml 이 커넥션 풀을 4~5 로 줄여 두어야 한다.
-# 풀이 앱과 같은 10 이면 3대에서 max_connections 예산을 넘긴다 (coupon.md 5장).
+# 3대가 커넥션 예산에 든다. application-coupon.yml 이 풀을 2 로 잡아 대당 2개만 쓴다.
+# 평상시 31 과 합쳐 37 이고 max_connections 실측 60 안이다.
 # coupon_dedicated_enabled = false
 
 # 아래 넷은 기본값이 없거나 환경마다 다르다. tfvars 에 반드시 적어야 한다.
