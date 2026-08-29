@@ -155,7 +155,31 @@ CDN 도메인과 ALB 주소는 재구축마다 바뀌지만 **손댈 것이 없�
 
 ## 부하 생성기
 
-`load_test_enabled = true` 로 올린다. 시험이 끝나면 다시 내린다.
+`scripts/loadtest-box.sh` 가 띄우고 내린다.
+
+```bash
+./scripts/loadtest-box.sh up       # 띄우고 토큰까지 준비될 때까지 기다린다
+./scripts/loadtest-box.sh status   # 가동 시간과 누적 비용
+./scripts/loadtest-box.sh down     # 지운다. 과금이 멈춘다
+```
+
+**`load_test_enabled` 를 tfvars 에 두지 않는다.** `true` 로 적어 두면 다른 이유로 apply 할
+때마다 되살아난다. 시간당 과금이라 켜져 있는 것을 알아채는 데 며칠이 걸린다.
+스크립트가 `-var` 로 넘기므로 이걸로 켠 동안만 존재한다.
+
+대가는 시험 중에 누가 apply 를 돌리면 인스턴스가 사라진다는 것이다. `up` 을 다시 부르면 되고,
+반대쪽 실수보다 싸다.
+
+**공짜가 아니다.** `m7i-flex.large` 가 free-tier-eligible 로 나오는 것은 프리 티어 계정이
+띄울 수 있는 타입이라는 뜻이지 무료라는 뜻이 아니다. 무료 할당은 `t3.micro` 계열 월 750시간뿐이다.
+
+| | |
+|---|---:|
+| 시간당 | 0.1177 USD |
+| 하루 | 2.83 USD |
+| 한 달 | 85.93 USD |
+
+프리 티어 크레딧에서 차감된다.
 
 ```
 m7i.xlarge   4 vCPU / 16 GB

@@ -209,16 +209,38 @@ variable "grafana_https_allowed_cidrs" {
  *
  * load_test 는 x86 이다. k6 는 멀티아키를 제공하므로 제약은 아니고 나머지와 맞춰 둔 것이다.
  *
- * 4 vCPU / 16 GB 는 실측에서 나왔다 (docs/deploy/README.md 의 부하 생성기 절).
+ * m7i-flex.large 는 고른 것이 아니라 남은 것이다 (2026-08-30).
  *
- * ramp-up 을 "동시 사용자 수가 60초에 걸쳐 2만에 도달" 로 읽었으므로 VU 가 2만 개 뜬다.
- * 목 서버를 상대로 실제로 돌려 최대 5.0 GB 를 썼다. 8 GB 로도 들어가지만 63% 라 여유가 얇고,
- * 실제 서버는 응답이 밀려 in-flight 버퍼가 더 잡힌다. 시연 한 번을 날리는 값이 더 크다.
+ * 확정값은 m7i.xlarge (4 vCPU / 16 GB) 였고 실측에서 나온 값이었다. 그런데 이 계정이
+ * 프리 티어라 RunInstances 가 거부한다. InvalidParameterCombination 으로 떨어진다.
+ * 띄울 수 있는 것이 여섯뿐이고 그중 메모리가 가장 큰 것이 m7i-flex.large 8 GB 다.
  *
- * 버스터블도 flex 도 쓰지 않는다. 크레딧 때문이 아니라 측정 안정성 때문이다.
- * 회차마다 크레딧 상태가 다르면 같은 코드가 다른 숫자를 낸다.
+ *   m7i-flex.large  2 vCPU  8 GB   <- 이것뿐
+ *   c7i-flex.large  2 vCPU  4 GB
+ *   t3.small / t4g.small   2 GB
+ *   t3.micro / t4g.micro   1 GB
  *
- * CPU 는 실측하지 못했다. 첫 실행에서 dropped_iterations 가 0 이 아니면 m7i.xlarge 로 올린다.
+ * 그래서 아래 둘을 알면서 어긴다.
+ *
+ * 하나. 메모리 여유가 얇다. 2만 VU 에 5.0 GB 를 썼으니 8 GB 의 63% 다. 실제 서버는
+ * 응답이 밀려 in-flight 버퍼가 더 잡히므로 이보다 오른다.
+ *
+ * 둘. flex 를 안 쓰기로 했던 결정을 어긴다. 측정 안정성 때문이었던 결정이다.
+ *
+ * 크레딧 이야기가 아니다. m7i-flex 는 BurstablePerformanceSupported 가 false 라
+ * T 계열과 달리 크레딧을 쓰지 않는다. 베이스라인 위에서 24시간 중 95% 를 풀 성능으로
+ * 보장하는 방식이다. describe-instance-credit-specifications 가 standard 를 돌려주지만
+ * 버스터블이 아닌 타입에는 의미 없는 잔여 필드다.
+ *
+ * 그래서 오히려 진단이 어렵다. T 계열이면 회차 간 차이가 났을 때 CPUCreditBalance 를 보고
+ * 크레딧이 말랐는지 알 수 있는데, flex 에는 그런 지표가 없다. 원인 없이 숫자만 흔들린다.
+ * 대책은 같은 회차를 두 번 이상 돌려 재현되는지 보는 것뿐이다.
+ *
+ * CPU 는 원래 실측하지 못했고 이제 4 vCPU 가 아니라 2 vCPU 다.
+ *
+ * 첫 회차에서 셋을 본다. dropped_iterations 가 0 인가, free -m 에 스왑이 안 생기는가,
+ * CPU 가 100% 에 안 붙는가. 하나라도 어긋나면 이 인스턴스의 한계를 잰 것이지
+ * 앱의 한계를 잰 것이 아니다. 그때는 부하를 여러 대로 나눠야 한다.
  */
 variable "instance_types" {
   description = "역할별 인스턴스 타입. 기술 스택 확정 문서 2.6절"
@@ -228,7 +250,7 @@ variable "instance_types" {
     app        = "t3.small"
     monitoring = "t4g.small"
     batch      = "t3.micro"
-    load_test  = "m7i.xlarge"
+    load_test  = "m7i-flex.large"
   }
 }
 
