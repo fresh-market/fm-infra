@@ -333,46 +333,24 @@ resource "aws_autoscaling_group" "coupon" {
 }
 
 /*
- * 대상당 요청 수로 늘린다. CPU 를 쓰지 않는 이유는 이 경로가 CPU 를 안 쓰기 때문이다.
+ * 전용 ASG 에는 스케일링 정책을 두지 않는다. 대수는 coupon-event.sh 가 이벤트 전에 직접 정한다.
  *
- * v4 의 요청 스레드는 순번을 받아 큐에 넣고 future 에서 park 한다. 가상 스레드라 캐리어를
- * 반납하고 자므로, 큐가 수천 건까지 자라고 p99 가 무너지는 동안에도 CPU 는 낮게 유지된다.
- * 포화가 CPU 에 안 나타나므로 CPU 기반 확장은 신호를 못 받는다.
+ * 반응형 확장이 이 이벤트에는 구조적으로 안 맞는다. 확장 판정이 1분 데이터포인트 3개 연속이라
+ * 최소 3분이 걸리는데, 선착순 쇄도는 그보다 짧게 끝난다. 판정이 나기 전에 재고가 소진된다.
  *
- * 크레딧은 이 판단과 무관하다. 인스턴스가 unlimited 모드라 크레딧이 말라도 스로틀링이 없다.
+ * 시작 시각을 아는 이벤트라 미리 여는 것이 맞다. 정책을 두면 표준 운용(open 3 = max_size)에서는
+ * 올릴 자리가 없어 절대 안 돌고, 안 도는 것이 남아 있으면 읽는 사람이 대수를 정책이 정한다고 오해한다.
  *
- * 버스트에는 이 정책이 못 따라온다. 알람 평가와 부팅에 수 분이 걸려 이벤트가 먼저 끝난다.
- * 이벤트 전에 desired 를 미리 올려 두는 것이 본 수단이고, 이것은 길게 이어지는 부하의 안전망이다.
- *
- * 이 정책 하나가 CloudWatch 알람 2개를 자동으로 만든다. INF-31 의 한도에 함께 계산해야 한다.
+ * 앱 ASG 는 다르다. 상시 서비스라 트래픽이 언제 붙을지 몰라 정책이 주 수단이다 (INF-39).
  */
-resource "aws_autoscaling_policy" "coupon_requests" {
-  count = var.coupon_dedicated_enabled ? 1 : 0
-
-  name                   = "${var.project}-coupon-requests"
-  autoscaling_group_name = aws_autoscaling_group.coupon[0].name
-  policy_type            = "TargetTrackingScaling"
-
-  target_tracking_configuration {
-    predefined_metric_specification {
-      predefined_metric_type = "ALBRequestCountPerTarget"
-      resource_label         = "${aws_lb.main.arn_suffix}/${aws_lb_target_group.coupon[0].arn_suffix}"
-    }
-
-    target_value = var.coupon_target_requests_per_instance
-
-    # 줄이는 쪽을 늦게 잡는다. 이벤트 중 잠깐 잦아들었다고 내리면 다음 파도를 못 받는다.
-    disable_scale_in = true
-  }
-}
-
 /*
  * 트래픽으로 앱을 늘린다. 선착순 전용 ASG 의 정책과 같은 지표를 쓴다.
  *
  * 스케일 인을 막지 않는다. 선착순은 이벤트 중 잠깐 잦아들었다고 내리면 다음 파도를 못 받아
  * 막아 두었지만, 일반 경로는 상시 서비스라 부하가 빠지면 내려가는 것이 맞다.
  *
- * 이 정책이 CloudWatch 알람 2개를 자동으로 만든다. INF-31 의 무료 한도에 함께 계산한다.
+ * 이 정책이 CloudWatch 알람 2개를 자동으로 만든다. alarms.tf 의 4개와 합쳐 6개이고
+ * INF-31 이 정한 상한과 정확히 같다. 알람을 더 만들려면 이 정책 몫을 먼저 빼야 한다.
  */
 resource "aws_autoscaling_policy" "app_requests" {
   name                   = "${var.project}-app-requests"
