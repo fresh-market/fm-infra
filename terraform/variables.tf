@@ -205,6 +205,29 @@ variable "grafana_https_allowed_cidrs" {
  * "exec /opt/java/openjdk/bin/java: exec format error" 로 계속 재시작했다.
  * 빌드가 러너(x86_64)에서 단일 아키텍처로 나오므로 app 이 t3 인 한 batch 도 t3 여야 한다.
  *
+ * batch 를 t3.micro 에서 t3.small 로 올렸다 (2026-08-30). 1 GB 로는 모자랐다.
+ *
+ * 실측이 있다. 배포가 배치를 재시작한 직후 여유 메모리가 910 MiB 중 103 MiB(11%)까지
+ * 떨어졌고, 커널이 SSM 에이전트와 node-exporter 와 cadvisor 를 죽였다.
+ * JVM 만 살아남아 up=1 이 유지되는 바람에 겉으로는 정상으로 보였고,
+ * SSM 명령이 Undeliverable 로 떨어지고 나서야 드러났다.
+ *
+ * 1 GB 에 다음이 함께 올라간다. 애초에 맞지 않는다.
+ *
+ *   JVM             heap max 616 MiB (Eden 170 + Survivor 21 + Tenured 425)
+ *   dockerd         컨테이너 넷을 관리한다
+ *   cadvisor        컨테이너 지표를 읽느라 자체 사용이 적지 않다
+ *   node-exporter   가볍다
+ *   SSM 에이전트     이것이 죽으면 원격 진단 자체가 막힌다
+ *
+ * 월 9.49 에서 18.98 USD 가 된다. t3.micro 는 프리 티어 750시간 대상이라 사실상 공짜였고
+ * t3.small 은 아니므로 증가분이 그대로 크레딧에서 나간다.
+ *
+ * 메모리 대신 JVM 힙을 조이는 선택지도 있었다. -Xmx384m 이면 1 GB 에 들어간다.
+ * 그러나 배치가 대량 쓰기를 도는 순간 GC 압박이 그대로 처리 시간이 되고,
+ * 그때 RDS 페일오버가 겹치면 열려 있던 트랜잭션이 길어져 RTO 2분을 넘긴다.
+ * 스케줄러 한 대에 9.49 USD 를 아끼려고 만들 위험이 아니다.
+ *
  * monitoring 은 관계없다. 자기 이미지를 따로 받고 전부 멀티아키를 제공한다.
  *
  * load_test 는 x86 이다. k6 는 멀티아키를 제공하므로 제약은 아니고 나머지와 맞춰 둔 것이다.
@@ -249,7 +272,7 @@ variable "instance_types" {
   default = {
     app        = "t3.small"
     monitoring = "t4g.small"
-    batch      = "t3.micro"
+    batch      = "t3.small"
     load_test  = "m7i-flex.large"
   }
 }
