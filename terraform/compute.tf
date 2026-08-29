@@ -65,6 +65,7 @@ locals {
     github_org       = var.github_org
     backend_repo     = var.github_backend_repo
     alb_dns_name     = aws_lb.main.dns_name
+    k6_version       = var.k6_version
   })
 
   monitoring_user_data = templatefile("${path.module}/templates/monitoring-user-data.sh.tftpl", {

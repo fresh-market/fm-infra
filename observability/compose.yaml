@@ -22,6 +22,9 @@ services:
       - --storage.tsdb.retention.time=15d
       # 설정을 고치고 재기동 없이 반영하는 경로다 (OPS-2-18).
       - --web.enable-lifecycle
+      # k6 가 부하 시험 결과를 밀어 넣는다. 기본값은 긁어오기만 하고 받지 않는다.
+      # 입구가 열리므로 SG 에서 부하 생성기만 9090 에 닿게 막아 둔다.
+      - --web.enable-remote-write-receiver
 
   grafana:
     image: grafana/grafana:12.4.3

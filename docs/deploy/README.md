@@ -241,9 +241,27 @@ sudo /opt/loadtest/refresh.sh
 
 ```bash
 cd /opt/loadtest/fm-backend/loadtest
-source /opt/loadtest/env
-k6 run -e BASE_URL="$BASE_URL" -e COUPON_ID=900001 issue.js
+set -a; source /opt/loadtest/env; set +a
+k6 run -o experimental-prometheus-rw -e BASE_URL="$BASE_URL" -e COUPON_ID=900001 issue.js
 ```
+
+`set -a` 로 감싸는 것은 `K6_PROMETHEUS_RW_*` 가 환경 변수로 나가야 k6 가 읽기 때문이다.
+
+**출력 이름이 `experimental-prometheus-rw` 다.** 1.7.1 기준이고 `prometheus-rw` 는 없다.
+버전을 올릴 때 이 이름이 바뀔 수 있으니 `k6 run -o bogus x.js` 로 목록을 먼저 본다.
+
+### Grafana 에서 본다
+
+Grafana 의 **05 부하 시험** 대시보드다. 도는 중에 실시간으로 보인다.
+
+**이 화면만 보면 안 된다.** 같은 시간대로 **03 앱과 JVM**, **04 데이터 저장소**를 함께 열어야
+p99 가 튄 이유를 읽을 수 있다. 부하 시험에서 알고 싶은 것은 지연 그 자체가 아니라
+그것이 튈 때 힙과 커넥션 풀과 락 대기가 무엇을 하고 있었나이기 때문이다.
+
+지표 이름은 k6 1.7.1 로 실제 확인했다. 트렌드는 **초 단위**다 (요약 출력의 ms 와 다르다).
+`dropped_iterations` 하나만 확인하지 못했다. 드롭이 있을 때만 나오는 값이라 확인 회차에서 안 났다.
+
+CSV 도 함께 남기려면 `--out csv=result.csv` 를 붙인다. 둘 다 된다.
 
 **시드 SQL 은 자동으로 안 들어간다.** DB 에 쓰는 동작이라 부팅 때 돌면 위험해서 뺐다.
 `seed-members.sql` 과 `seed-coupon.sql` 을 먼저 넣고, 이벤트는 관리자 API 로 연다.

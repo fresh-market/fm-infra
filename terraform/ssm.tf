@@ -84,6 +84,19 @@ resource "aws_ssm_parameter" "loki_endpoint" {
 }
 
 /*
+ * k6 가 결과를 밀어 넣을 주소다. Loki 와 같은 인스턴스이지만 파라미터를 따로 둔다.
+ *
+ * 값이 같다고 하나로 묶으면 이름이 뜻을 잃는다. 부하 생성기가 loki-endpoint 를 읽어
+ * 9090 에 붙는 코드는 나중에 읽는 사람이 오해한다. 관측 스택을 쪼갤 때도 여기만 바꾸면 된다.
+ */
+resource "aws_ssm_parameter" "prometheus_endpoint" {
+  name        = "${local.ssm_prefix}/prometheus-endpoint"
+  description = "Prometheus address for k6 remote write"
+  type        = "String"
+  value       = aws_instance.monitoring.private_ip
+}
+
+/*
  * Grafana 가 자기 주소를 아는 경로다.
  * ROOT_URL 이 틀리면 로그인 후 리디렉션과 패널 공유 링크가 localhost 로 간다.
  *

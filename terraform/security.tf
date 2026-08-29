@@ -193,6 +193,21 @@ resource "aws_vpc_security_group_ingress_rule" "loki_from_hosts" {
 }
 
 /*
+ * SG-mon 의 인바운드 하나가 더 는다. k6 가 시험 결과를 remote write 로 밀어 넣는다.
+ *
+ * 부하 생성기에서만 온다. Prometheus 는 원래 긁어오기만 하고 받지 않는 물건이라,
+ * 받는 입구를 여는 이상 출처를 좁혀 둔다. 시험 시간에만 뜨는 인스턴스다.
+ */
+resource "aws_vpc_security_group_ingress_rule" "prometheus_from_loadtest" {
+  security_group_id            = aws_security_group.mon.id
+  referenced_security_group_id = aws_security_group.loadtest.id
+  from_port                    = 9090
+  to_port                      = 9090
+  ip_protocol                  = "tcp"
+  description                  = "k6 remote write"
+}
+
+/*
  * Grafana 를 ALB 뒤에 붙일 때만 열린다.
  * 출처가 SG-alb 뿐이라는 것이, Grafana 가 X-Amzn-Oidc-Identity 헤더를 믿어도 되는 근거다.
  * 다른 경로로 3000 에 닿을 수 없으니 헤더를 위조해 넣을 상대가 없다.

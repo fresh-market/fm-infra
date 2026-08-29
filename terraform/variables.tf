@@ -309,6 +309,23 @@ variable "db_maintenance_window" {
 }
 
 # 시험 시간에만 켠다. 상시 가동 전제의 명시적 예외다.
+/*
+ * k6 버전을 박는다. 최신을 깔면 안 된다.
+ *
+ * VU 당 메모리 실측(2026-08-28, 2만 VU 에 5.0 GB)이 1.7.1 기준이고, m7i.xlarge 를
+ * 고른 근거가 그 수치다. 런타임이 바뀌면 같은 스크립트가 다른 메모리를 쓴다.
+ *
+ * 부하 시험은 회차 간 숫자를 비교하는 일이라 도구가 고정되어야 한다.
+ * 도구가 바뀌면 이번 회차가 나빠진 것이 앱 탓인지 k6 탓인지 못 가린다.
+ *
+ * 올릴 때는 이 값만 바꾸고 메모리를 다시 잰 뒤 deploy/README 의 실측표를 갱신한다.
+ */
+variable "k6_version" {
+  description = "부하 생성기에 설치할 k6 버전"
+  type        = string
+  default     = "1.7.1"
+}
+
 variable "load_test_enabled" {
   description = "부하 생성 인스턴스를 띄울지 여부"
   type        = bool

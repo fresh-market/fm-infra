@@ -35,31 +35,51 @@ systemctl daemon-reexec
 # mint-tokens.py 가 표준 라이브러리만 쓰므로 pip 는 필요 없다.
 apt-get install -y git python3
 
-# k6 는 도커로 안 돌린다.
 #
-# 2만 연결을 만드는 것이 일이라 호스트의 nofile 과 포트 범위를 그대로 써야 한다.
-# 컨테이너로 두면 위에서 올린 한도가 안 먹어 --ulimit 를 또 맞춰야 하고,
-# 네트워크 네임스페이스가 한 겹 더 끼어 재려는 것에 잡음이 섞인다.
-curl -fsSL https://dl.k6.io/key.gpg -o /usr/share/keyrings/k6-archive-keyring.asc
-chmod a+r /usr/share/keyrings/k6-archive-keyring.asc
-echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.asc] https://dl.k6.io/deb stable main" \
-  > /etc/apt/sources.list.d/k6.list
-apt-get update
-apt-get install -y k6
+# k6 를 릴리스 tarball 로 박아 넣는다. apt 로 최신을 깔면 안 된다.
+#
+# VU 당 메모리 실측(2026-08-28, 2만 VU 에 5.0 GB)이 1.7.1 기준이고 m7i.xlarge 를 고른
+# 근거가 그 수치다. apt 는 지금 2.x 를 깔아 메이저가 두 번 뛴다.
+# 부하 시험은 회차 간 숫자를 비교하는 일이라 도구가 고정되어야 한다.
+#
+# 도커로도 고정할 수 있지만(grafana/k6:태그) 안 쓴다. --network host 와 --ulimit 를
+# 빠뜨리면 브리지 NAT 에서 포트가 먼저 말라 앱이 아니라 conntrack 을 재게 되는데,
+# 그게 조용히 일어난다. 바이너리는 빠뜨릴 플래그가 없다.
+#
+K6_VERSION=${k6_version}
+curl -fsSL "https://github.com/grafana/k6/releases/download/v$K6_VERSION/k6-v$K6_VERSION-linux-amd64.tar.gz" \
+  -o /tmp/k6.tar.gz
+tar -xzf /tmp/k6.tar.gz -C /tmp
+install -m 0755 "/tmp/k6-v$K6_VERSION-linux-amd64/k6" /usr/local/bin/k6
+rm -rf /tmp/k6.tar.gz "/tmp/k6-v$K6_VERSION-linux-amd64"
 
 mkdir -p /opt/loadtest
 
-# 어떤 버전으로 쟀는지 남긴다.
-#
-# VU 당 메모리 실측(2026-08-28, 5.0 GB / 2만 VU)이 1.7.1 기준이다. apt 는 최신을 깔므로
-# 회차마다 다를 수 있고, 런타임이 바뀌면 같은 스크립트가 다른 메모리를 쓴다.
-# 회차 기록에 이 값을 함께 적어야 나중에 수치를 비교할 수 있다.
+# 회차 기록에 함께 적을 값이다. 고정했어도 실제로 무엇이 깔렸는지는 남겨 둔다.
 k6 version > /opt/loadtest/k6-version.txt 2>&1
 
-# ALB 주소를 미리 넣어 둔다. 시험할 때마다 콘솔에서 찾아 오지 않게 하려는 것이다.
+#
+# 시험할 때마다 콘솔에서 찾아 오지 않게 미리 넣어 둔다.
+#
+# 결과를 Prometheus 로 민다. 끝난 뒤 CSV 를 보는 것과 달리 도는 중에 보이고,
+# 무엇보다 같은 Grafana 에서 앱 JVM 과 MySQL 위에 겹쳐 볼 수 있다.
+# 부하 시험에서 알고 싶은 것이 "p99 가 튈 때 DB 가 무엇을 하고 있었나" 라 그게 핵심이다.
+#
+# 밀어 넣는 간격을 5초로 늘린다. 기본값이 짧아 2만 VU 회차에서는 생성기가
+# 지표를 보내느라 제 여력을 깎는다. 대상이 아니라 생성기가 느려지는 쪽이다.
+#
 cat > /opt/loadtest/env <<ENVFILE
 BASE_URL=http://${alb_dns_name}
+K6_PROMETHEUS_RW_SERVER_URL=http://__PROM__:9090/api/v1/write
+K6_PROMETHEUS_RW_PUSH_INTERVAL=5s
+K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),avg,max
 ENVFILE
+
+# Prometheus 주소는 부팅 때 SSM 에서 읽는다. 템플릿에 IP 를 박으면 모니터링을
+# 다시 만들 때마다 이 인스턴스까지 재생성된다 (loki-endpoint 와 같은 이유).
+PROM_IP=$(aws ssm get-parameter --name "/${project}/prometheus-endpoint" \
+  --region ${region} --query 'Parameter.Value' --output text)
+sed -i "s|__PROM__|$PROM_IP|" /opt/loadtest/env
 
 #
 # 시나리오와 토큰을 받는 절차를 스크립트로 남긴다.
