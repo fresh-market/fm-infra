@@ -9,7 +9,24 @@ services:
       - "8081:8081"
     environment:
       SPRING_PROFILES_ACTIVE: "${profiles}"
-      DB_URL: "jdbc:mysql://$${DB_ENDPOINT}:3306/${db_name}?connectTimeout=3000&socketTimeout=10000"
+      #
+      # application.yml 의 로컬 기본 URL 과 같은 세 옵션을 여기에도 둔다.
+      #
+      # 저 기본값은 ${"$"}{DB_URL:...} 문법이라 이 환경 변수가 있으면 통째로 무시된다.
+      # 그래서 운영에는 처음부터 적용된 적이 없고, 로컬에서만 되는 모양이 되어 있었다.
+      #
+      # rewriteBatchedStatements
+      #   JDBC 배치를 다중행 INSERT 하나로 합친다. 없으면 건별로 나간다.
+      #   1차 부하 시험(2026-08-30)에서 494 행이 495 개의 INSERT 문으로 나갔다. 플러시는
+      #   14 번 돌며 회당 약 35 행을 모았는데(COMMIT 14 회) 드라이버가 그것을 따로 보냈다.
+      #   CouponIssueFlusher 가 jdbcTemplate.batchUpdate 를 쓰므로 이 옵션이 그 배치를 살린다.
+      #
+      # characterEncoding, serverTimezone
+      #   지금 동작을 바꾸지 않는다. RDS 실측이 character_set_server=utf8mb4,
+      #   time_zone=UTC 라 드라이버가 추론하는 값과 같다 (2026-08-30 확인).
+      #   명시하는 것은 파라미터 그룹이 바뀌었을 때 조용히 깨지지 않게 하려는 것이다.
+      #
+      DB_URL: "jdbc:mysql://$${DB_ENDPOINT}:3306/${db_name}?connectTimeout=3000&socketTimeout=10000&rewriteBatchedStatements=true&characterEncoding=UTF-8&serverTimezone=UTC"
       DB_USERNAME: "${db_username}"
       DB_PASSWORD: "$${DB_PASSWORD}"
       # 앱이 기본값 없이 요구하는 값들이다. 빠지면 @Value 가 기동을 막는다.
