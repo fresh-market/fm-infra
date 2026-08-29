@@ -208,6 +208,23 @@ resource "aws_autoscaling_group" "app" {
   health_check_type         = "ELB"
   health_check_grace_period = 300
 
+  /*
+   * 새로 띄운 인스턴스가 제 몫을 하기까지 ASG 가 기다려 주는 시간이다.
+   *
+   * 이게 없으면 부팅 중인 대수를 계산에 안 넣어 정책이 같은 부하를 두 번 센다.
+   * 1대에서 분당 12000 이 오면 2대로 늘리는데, 신규가 뜨는 4~6분 동안 지표가 그대로라
+   * 3분 뒤 재판정에서 ceil(2 x 12000/6000) = 4 가 나온다. max 3 에서 잘려도 한 대를 더 띄운다.
+   *
+   * 300 은 실측이 아니다. 기동 시간을 아직 안 쟀고(오토스케일링 설계 6.2절 미정),
+   * 같은 이유로 잡힌 health_check_grace_period 와 맞춰 둔 값이다.
+   * 첫 배포에서 증설부터 healthy 까지를 재고 그 값으로 바꾼다.
+   *
+   * 길게 잡아서 손해 보는 것은 정당한 추가 확장이 늦어지는 것인데, 상한이 3이라 거의 없다.
+   *
+   * coupon ASG 에는 안 넣는다. 스케일링 정책이 없어 이 값이 쓰일 자리가 없다 (INF-40).
+   */
+  default_instance_warmup = 300
+
   target_group_arns = [
     aws_lb_target_group.app.arn,
     aws_lb_target_group.liveness.arn,
