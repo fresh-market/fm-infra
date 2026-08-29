@@ -184,8 +184,13 @@ resource "aws_launch_template" "app" {
 }
 
 /*
- * max_size 가 2여야 배포 절차가 성립한다.
- * 신규를 먼저 띄우므로 배포 중 일시적으로 2대가 된다. desired 를 2로 두면 띄울 자리가 없다.
+ * 앱을 2대로 운영한다 (INF-28 이 열어 둔 전환을 켠 것이다).
+ *
+ * max_size 는 desired + 1 이어야 배포 절차가 성립한다. 신규를 먼저 띄우고 구 것을 내리므로
+ * 배포 중 일시적으로 한 대가 더 붙는다. 그 자리가 없으면 배포가 멈춘다.
+ *
+ * 커넥션은 여유가 있다. 풀 10 이라 2대가 20 이고, 배치 10 과 익스포터 5 를 더해도
+ * 배포 중 45 다. max_connections 실측 60 안에 든다.
  *
  * desired_capacity 는 배포 스크립트가 조절한다. Terraform 이 되돌리면 배포가 깨진다.
  */
@@ -194,8 +199,8 @@ resource "aws_autoscaling_group" "app" {
   vpc_zone_identifier = [for s in aws_subnet.public : s.id]
 
   min_size         = 0
-  desired_capacity = 1
-  max_size         = 2
+  desired_capacity = 2
+  max_size         = 3
 
   # ELB 헬스체크를 본다. 프로세스는 살아 있는데 응답을 못 하는 경우를 잡는다.
   health_check_type         = "ELB"

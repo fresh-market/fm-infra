@@ -12,7 +12,8 @@ set -euo pipefail
 
 PROJECT="${PROJECT:-freshmarket}"
 REGION="${AWS_REGION:-ap-northeast-2}"
-DESIRED="${DESIRED:-1}"
+# 앱은 2대로 운영한다. 한 대만 올리려면 DESIRED=1 로 부른다.
+DESIRED="${DESIRED:-2}"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
