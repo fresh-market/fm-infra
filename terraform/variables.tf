@@ -203,7 +203,7 @@ variable "grafana_https_allowed_cidrs" {
  *
  * load_test 는 x86 이다. k6 는 멀티아키를 제공하므로 제약은 아니고 나머지와 맞춰 둔 것이다.
  *
- * 4 vCPU / 16 GB 는 실측에서 나왔다 (loadtest/README.md).
+ * 4 vCPU / 16 GB 는 실측에서 나왔다 (docs/deploy/README.md 의 부하 생성기 절).
  *
  * ramp-up 을 "동시 사용자 수가 60초에 걸쳐 2만에 도달" 로 읽었으므로 VU 가 2만 개 뜬다.
  * 목 서버를 상대로 실제로 돌려 최대 5.0 GB 를 썼다. 8 GB 로도 들어가지만 63% 라 여유가 얇고,
