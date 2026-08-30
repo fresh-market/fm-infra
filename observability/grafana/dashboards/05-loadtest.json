@@ -492,10 +492,215 @@
   },
   {
    "type": "row",
-   "title": "생성기가 제 몫을 했는지",
+   "title": "회로가 무엇을 보고 열었나",
    "gridPos": {
     "x": 0,
     "y": 26,
+    "w": 24,
+    "h": 1
+   },
+   "collapsed": false,
+   "panels": []
+  },
+  {
+   "type": "timeseries",
+   "title": "회로 상태",
+   "description": "1 이면 그 인스턴스의 회로가 열려 있다. couponSeq 가 열리면 순번을 못 받아 503 congested-seq-unavailable 로, couponWrite 가 열리면 503 congested-write-circuit 으로 나간다.",
+   "gridPos": {
+    "x": 0,
+    "y": 27,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 6,
+      "showPoints": "never",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "resilience4j_circuitbreaker_state{name=~\"coupon(Seq|Write)\",state=\"open\"}",
+     "legendFormat": "{{name}} {{instance_id}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "느린 호출 비율과 실패 비율",
+   "description": "회로를 여는 두 입력이다. 둘 중 하나가 50% 를 넘으면 열린다. -1 은 표본이 최소 호출 수(20) 에 못 미쳐 아직 판정하지 않는다는 뜻이다. 지난 회차에서 couponSeq 가 열린 이유가 느림인지 실패인지 여기서 갈린다.",
+   "gridPos": {
+    "x": 8,
+    "y": 27,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 6,
+      "showPoints": "never",
+      "thresholdsStyle": {
+       "mode": "line"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 50
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "resilience4j_circuitbreaker_slow_call_rate{name=~\"coupon(Seq|Write)\"}",
+     "legendFormat": "느림 {{name}} {{instance_id}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    },
+    {
+     "refId": "B",
+     "expr": "resilience4j_circuitbreaker_failure_rate{name=~\"coupon(Seq|Write)\"}",
+     "legendFormat": "실패 {{name}} {{instance_id}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ]
+  },
+  {
+   "type": "timeseries",
+   "title": "회로가 즉시 거절한 요청",
+   "description": "회로가 열려 있어 대상까지 가지도 않고 끊은 호출이다. 지난 회차의 거절 5,134건이 이 지표에 잡혔어야 했다.",
+   "gridPos": {
+    "x": 16,
+    "y": 27,
+    "w": 8,
+    "h": 8
+   },
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps",
+     "custom": {
+      "lineWidth": 1,
+      "fillOpacity": 6,
+      "showPoints": "never",
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "expr": "sum by (name) (rate(resilience4j_circuitbreaker_not_permitted_calls_total{name=~\"coupon(Seq|Write)\"}[1m]))",
+     "legendFormat": "{{name}}",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     }
+    }
+   ]
+  },
+  {
+   "type": "row",
+   "title": "생성기가 제 몫을 했는지",
+   "gridPos": {
+    "x": 0,
+    "y": 35,
     "w": 24,
     "h": 1
    },
@@ -508,7 +713,7 @@
    "description": "0 이 아니면 k6 가 계획한 부하를 다 못 보냈다. 이 회차의 수치는 앱이 아니라 생성기의 한계를 잰 것이다. 다른 패널과 달리 이 지표 이름은 실물로 확인하지 못했다. k6 가 드롭이 있을 때만 내보내는데 확인 회차에서 드롭이 안 났다. 첫 회차에 빈 채로 보이면 이름부터 의심한다.",
    "gridPos": {
     "x": 0,
-    "y": 27,
+    "y": 36,
     "w": 12,
     "h": 8
    },
@@ -572,7 +777,7 @@
    "description": "iteration_duration 이 계속 늘면 VU 가 쌓여 메모리가 는다. 2만 VU 회차에서 먼저 보는 값이다.",
    "gridPos": {
     "x": 12,
-    "y": 27,
+    "y": 36,
     "w": 12,
     "h": 8
    },
