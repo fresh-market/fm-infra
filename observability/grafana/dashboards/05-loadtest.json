@@ -106,7 +106,7 @@
   {
    "type": "timeseries",
    "title": "응답 지연",
-   "description": "선은 선착순 요청 예산 0.4초다 (application-coupon.yml 의 request-budget). 넘으면 사용자가 기다려 준 시간 밖에서 답한 것이다.",
+   "description": "상태 코드마다 선이 갈린다. k6 가 200 과 409(소진) 와 503(혼잡) 을 따로 집계하기 때문이다. 셋의 뜻이 다르다. 409 는 즉시 반환이라 빠르고 503 은 예산까지 기다렸다 끊는다. coupon.md 8장의 합격 기준은 처리된 발급 응답이므로 200 만 본다. 선은 그 SLO 인 1초다.",
    "gridPos": {
     "x": 12,
     "y": 1,
@@ -159,7 +159,7 @@
     {
      "refId": "A",
      "expr": "k6_http_req_duration_p99",
-     "legendFormat": "p99 {{name}}",
+     "legendFormat": "p99 {{status}}",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -168,7 +168,7 @@
     {
      "refId": "B",
      "expr": "k6_http_req_duration_p95",
-     "legendFormat": "p95 {{name}}",
+     "legendFormat": "p95 {{status}}",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -177,7 +177,7 @@
     {
      "refId": "C",
      "expr": "k6_http_req_duration_avg",
-     "legendFormat": "avg {{name}}",
+     "legendFormat": "avg {{status}}",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -228,7 +228,7 @@
     {
      "refId": "A",
      "expr": "k6_http_req_waiting_p99",
-     "legendFormat": "waiting p99",
+     "legendFormat": "waiting p99 {{status}}",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -237,7 +237,7 @@
     {
      "refId": "B",
      "expr": "k6_http_req_connecting_p99",
-     "legendFormat": "connecting p99",
+     "legendFormat": "connecting p99 {{status}}",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -246,7 +246,7 @@
     {
      "refId": "C",
      "expr": "k6_http_req_blocked_p99",
-     "legendFormat": "blocked p99",
+     "legendFormat": "blocked p99 {{status}}",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -255,7 +255,7 @@
     {
      "refId": "D",
      "expr": "k6_http_req_sending_p99",
-     "legendFormat": "sending p99",
+     "legendFormat": "sending p99 {{status}}",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
@@ -319,7 +319,7 @@
     {
      "refId": "A",
      "expr": "k6_http_req_failed_rate",
-     "legendFormat": "실패율 {{name}}",
+     "legendFormat": "실패율 {{status}}",
      "datasource": {
       "type": "prometheus",
       "uid": "prometheus"
