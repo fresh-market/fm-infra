@@ -269,24 +269,6 @@ resource "aws_launch_template" "coupon" {
   vpc_security_group_ids = [aws_security_group.app.id]
   user_data              = base64encode(local.coupon_user_data)
 
-  /*
-   * 이 ASG 만 unlimited 로 둔다. 앱은 standard 그대로다.
-   *
-   * t3.small 은 버스터블이라 크레딧이 없으면 2 vCPU 의 20% 로 묶인다. 이 ASG 는 이벤트
-   * 직전에 태어나므로 크레딧을 쌓을 시간이 없고, 태어나자마자 제일 센 부하를 맞는다.
-   * 방금 띄운 인스턴스의 잔고가 3 대였고 1차 회차 인스턴스는 249 였다.
-   *
-   * 다만 이것이 부하 시험 결과를 좌우하지는 않았다. unlimited 로 두 번 재서 7,281건과
-   * 538건이 나왔다 (2026-08-30). 결과를 가른 것은 크레딧이 아니라 회차 중 살아남은
-   * 대수였다. 그러니 이 설정은 성능 대책이 아니라 변수를 하나 없애는 장치다.
-   * 인스턴스를 언제 띄웠느냐에 따라 결과가 달라지는 것을 막는다.
-   *
-   * 초과분은 vCPU-시간당 0.05 USD 다. 3대가 한 시간 내내 100% 를 써도 0.24 USD 다.
-   */
-  credit_specification {
-    cpu_credits = "unlimited"
-  }
-
   block_device_mappings {
     device_name = "/dev/sda1"
 
