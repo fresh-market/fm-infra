@@ -155,7 +155,7 @@
         {
           "refId": "A",
           "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-          "legendFormat": "{{instance}}",
+          "legendFormat": "{{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -205,7 +205,7 @@
         {
           "refId": "A",
           "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100",
-          "legendFormat": "{{instance}}",
+          "legendFormat": "{{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -271,7 +271,7 @@
         {
           "refId": "A",
           "expr": "100 - (node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"} * 100)",
-          "legendFormat": "{{instance}} {{mountpoint}}",
+          "legendFormat": "{{instance}} {{instance_id}} {{mountpoint}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -319,7 +319,7 @@
         {
           "refId": "A",
           "expr": "node_load1",
-          "legendFormat": "{{instance}}",
+          "legendFormat": "{{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -395,7 +395,7 @@
         {
           "refId": "A",
           "expr": "changes(container_start_time_seconds[10m])",
-          "legendFormat": "{{instance}} {{name}}",
+          "legendFormat": "{{instance}} {{instance_id}} {{name}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -443,7 +443,7 @@
         {
           "refId": "A",
           "expr": "container_memory_usage_bytes{name!=\"\"}",
-          "legendFormat": "{{instance}} {{name}}",
+          "legendFormat": "{{instance}} {{instance_id}} {{name}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"

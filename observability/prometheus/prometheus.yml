@@ -20,6 +20,13 @@ scrape_configs:
 
   # 앱은 ASG 가 교체하므로 주소가 바뀐다. 정적 목록을 쓸 수 없다.
   # EC2 서비스 디스커버리로 태그를 보고 찾는다.
+  #
+  # instance 는 EC2 의 Name 태그다. 한 역할의 여러 대가 같은 이름을 갖는다.
+  # 그래서 instance_id 를 함께 남긴다. 없으면 3대가 같은 범례로 겹쳐 보여
+  # 그중 한 대만 이상한 경우를 못 가린다.
+  #
+  # 앱은 지금 1대라 안 드러나지만 오토스케일링으로 3대까지 는다 (INF-39).
+  #
   - job_name: app
     metrics_path: /actuator/prometheus
     ec2_sd_configs:
@@ -33,6 +40,8 @@ scrape_configs:
     relabel_configs:
       - source_labels: [__meta_ec2_tag_Name]
         target_label: instance
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
 
   - job_name: batch
     metrics_path: /actuator/prometheus
@@ -47,6 +56,9 @@ scrape_configs:
     relabel_configs:
       - source_labels: [__meta_ec2_tag_Name]
         target_label: instance
+      # 배치는 1대 고정이지만 교체되면 id 가 바뀐다. 회차 비교에 그 구분이 필요하다.
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
 
   #
   # 선착순 전용 인스턴스다. app 과 나누는 이유는 필터가 tag:Role 이기 때문이다.
@@ -87,6 +99,10 @@ scrape_configs:
         target_label: instance
       - source_labels: [__meta_ec2_tag_Role]
         target_label: role
+      # 전용 ASG 3대가 Name 태그를 공유한다. 이것이 없으면 세 호스트의 메모리와 CPU 가
+      # 한 이름으로 겹쳐, 그중 한 대만 마르는 경우를 못 가린다.
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
 
   # 컨테이너 지표. OOM 감지가 여기서 나온다.
   - job_name: cadvisor
@@ -99,6 +115,8 @@ scrape_configs:
     relabel_configs:
       - source_labels: [__meta_ec2_tag_Name]
         target_label: instance
+      - source_labels: [__meta_ec2_instance_id]
+        target_label: instance_id
 
   - job_name: mysqld
     static_configs:

@@ -89,7 +89,7 @@
         {
           "refId": "A",
           "expr": "hikaricp_connections_active",
-          "legendFormat": "active {{instance}}",
+          "legendFormat": "active {{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -98,7 +98,7 @@
         {
           "refId": "B",
           "expr": "hikaricp_connections_idle",
-          "legendFormat": "idle {{instance}}",
+          "legendFormat": "idle {{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -107,7 +107,7 @@
         {
           "refId": "C",
           "expr": "hikaricp_connections_pending",
-          "legendFormat": "pending {{instance}}",
+          "legendFormat": "pending {{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -155,7 +155,7 @@
         {
           "refId": "A",
           "expr": "tomcat_threads_busy_threads",
-          "legendFormat": "busy {{instance}}",
+          "legendFormat": "busy {{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -164,7 +164,7 @@
         {
           "refId": "B",
           "expr": "tomcat_threads_config_max_threads",
-          "legendFormat": "max {{instance}}",
+          "legendFormat": "max {{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -224,7 +224,7 @@
         {
           "refId": "A",
           "expr": "sum by (instance) (jvm_memory_used_bytes{area=\"heap\"})",
-          "legendFormat": "used {{instance}}",
+          "legendFormat": "used {{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -233,7 +233,7 @@
         {
           "refId": "B",
           "expr": "sum by (instance) (jvm_memory_max_bytes{area=\"heap\"})",
-          "legendFormat": "max {{instance}}",
+          "legendFormat": "max {{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -281,7 +281,7 @@
         {
           "refId": "A",
           "expr": "rate(jvm_gc_pause_seconds_sum[5m])",
-          "legendFormat": "{{instance}} {{action}}",
+          "legendFormat": "{{instance}} {{instance_id}} {{action}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -329,7 +329,7 @@
         {
           "refId": "A",
           "expr": "jvm_threads_live_threads",
-          "legendFormat": "{{instance}}",
+          "legendFormat": "{{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -379,7 +379,7 @@
         {
           "refId": "A",
           "expr": "process_cpu_usage",
-          "legendFormat": "{{instance}}",
+          "legendFormat": "{{instance}} {{instance_id}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
