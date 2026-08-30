@@ -269,25 +269,6 @@ resource "aws_launch_template" "coupon" {
   vpc_security_group_ids = [aws_security_group.app.id]
   user_data              = base64encode(local.coupon_user_data)
 
-  /*
-   * 이 ASG 만 unlimited 로 둔다. 앱은 standard 그대로다.
-   *
-   * t3.small 은 버스터블이라 크레딧이 없으면 2 vCPU 의 20% 로 묶인다. 이 ASG 는 이벤트
-   * 직전에 태어나므로 크레딧을 쌓을 시간이 없고, 태어나자마자 제일 센 부하를 맞는다.
-   *
-   * 실제로 그렇게 무너졌다. 2026-08-30 부하 시험에서 인스턴스를 띄운 지 19분 만에 돌렸더니
-   * 크레딧 잔고가 1.12 / 0.84 였고 기준선에 묶였다. Redis 왕복은 0.8밀리초였는데 앱이 CPU 를
-   * 못 얻어 측정값이 50밀리초를 넘었고, 순번 확보 회로가 그것을 Redis 가 느린 것으로 읽고
-   * 열었다. 요청 24,654건이 회로에서 즉시 거절됐고 발급은 4,376건에 그쳤다.
-   * 크레딧이 105 이상 쌓여 있던 회차는 같은 부하에서 10,000건을 다 발급했다.
-   *
-   * 초과분은 vCPU-시간당 0.05 USD 다. 3대가 한 시간 내내 100% 를 써도 0.24 USD 이므로,
-   * 이벤트가 실패하는 것보다 싸다.
-   */
-  credit_specification {
-    cpu_credits = "unlimited"
-  }
-
   block_device_mappings {
     device_name = "/dev/sda1"
 
