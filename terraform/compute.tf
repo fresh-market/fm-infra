@@ -317,7 +317,19 @@ resource "aws_autoscaling_group" "coupon" {
   desired_capacity = 0
   max_size         = var.coupon_max_size
 
-  health_check_type         = "ELB"
+  /*
+   * 이 ASG 만 EC2 다. 앱과 배치는 ELB 로 둔다.
+   *
+   * ELB 로 두면 "ALB 에서 빼는 것" 과 "인스턴스를 죽이는 것" 이 한 판정에 묶인다. 이벤트가
+   * 90초인데 그 안에 종료가 일어나면 기동 4~6분 동안 대수가 줄어든 채로 끝난다. 느려서
+   * 빠진 인스턴스는 부하가 걷히면 돌아오는데, 죽여 버리면 돌아올 것이 없다.
+   *
+   * EC2 로 두면 느린 인스턴스는 ALB 대상에서만 빠지고 살아 있다가 다시 healthy 가 되면
+   * 돌아온다. 진짜로 죽은 인스턴스는 EC2 상태 검사가 잡는다.
+   *
+   * 평상시 desired 0 이라 이 완화가 상시 위험을 늘리지 않는다. 이벤트 동안만 도는 ASG 다.
+   */
+  health_check_type         = "EC2"
   health_check_grace_period = 300
 
   target_group_arns = [aws_lb_target_group.coupon[0].arn]

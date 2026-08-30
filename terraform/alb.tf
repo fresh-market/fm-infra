@@ -283,14 +283,37 @@ resource "aws_lb_target_group" "coupon" {
   # 앱 대상 그룹과 같은 값이다. 같은 이미지를 프로파일만 바꿔 띄우므로 종료 특성이 같다.
   deregistration_delay = 30
 
+  /*
+   * 이 그룹만 앱보다 느슨하다. 바쁜 인스턴스를 죽은 것으로 오판하지 않기 위해서다.
+   *
+   * 이벤트 90초 동안 이 인스턴스들은 CPU 90% 를 친다. 그때 readiness 응답이 5초를 넘길 수
+   * 있는데, 5초 x 2회면 20초 만에 퇴출이고 ASG 가 HealthCheckType = ELB 라 인스턴스를
+   * 종료한다. 새 인스턴스는 기동에 4~6분이라 이벤트가 끝날 때까지 복구되지 않는다.
+   *
+   * 실제로 그렇게 무너졌다 (2026-08-30 부하 시험). 발급 수가 살아남은 대수를 그대로 따라갔다.
+   *
+   *   3대 유지  ->  10,000건
+   *   2대로 감소 ->   8,870건
+   *   1대까지    ->     538건
+   *
+   * 두 값을 함께 늘린다. 한 번의 여유는 5초에서 8초로, 퇴출까지는 20초에서 50초로 간다.
+   * 느린 인스턴스는 느린 채로 계속 요청을 받는 편이 낫다. 빼 봐야 그 부하가 남은 대수로
+   * 옮겨 갈 뿐이다.
+   *
+   * timeout 을 interval 과 같게 둘 수는 없다. ALB 가 "Health check interval must be
+   * greater than the timeout" 으로 거절한다. 그래서 10 과 8 이다.
+   *
+   * 퇴출을 이벤트 길이(90초) 밖으로 밀지는 않았다. 그러면 정말로 죽은 인스턴스에도 100초
+   * 동안 요청이 간다. 50초가 "바쁜 것은 봐주고 죽은 것은 뺀다" 의 절충이다.
+   */
   health_check {
     path                = "/actuator/health/readiness"
     port                = "8081"
     protocol            = "HTTP"
     interval            = 10
-    timeout             = 5
+    timeout             = 8
     healthy_threshold   = 2
-    unhealthy_threshold = 2
+    unhealthy_threshold = 5
     matcher             = "200"
   }
 
