@@ -87,7 +87,10 @@ stop_one_app() {
   first=$(printf '%s\n' $ids | head -1)
   left=$(( $(printf '%s\n' $ids | wc -w) - 1 ))
   log "인스턴스 정지  $first  (남는 대수 $left)"
-  run_ssm "$first" 'systemctl stop freshmarket.service; echo stopped'
+  # docker stop 을 쓴다. systemctl stop 은 compose down 으로 컨테이너를 지워
+  # 종료 로그가 사라진다. 큐를 비우고 내려갔는지 확인할 수 없다.
+  # stop_grace_period 45초 안에 스프링이 SmartLifecycle.stop 을 돌린다.
+  run_ssm "$first" 'docker stop freshmarket >/dev/null && echo stopped'
   printf 'stop|%s\n' "$first" >> "$STATE"
 }
 
@@ -105,7 +108,7 @@ restore_all() {
         done ;;
       stop)
         log "인스턴스 기동  $a"
-        run_ssm "$a" 'systemctl start freshmarket.service; echo started' ;;
+        run_ssm "$a" 'docker start freshmarket >/dev/null && echo started' ;;
     esac
   done < "$STATE"
   rm -f "$STATE"
