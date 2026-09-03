@@ -98,12 +98,25 @@ JSON
     out=$(aws ssm get-command-invocation --region "$REGION" \
       --command-id "$cid" --instance-id "$iid" \
       --query '[Status,StandardOutputContent]' --output text 2>/dev/null || true)
-    status=$(printf '%s' "$out" | awk '{print $1}')
+    status=$(printf '%s' "$out" | awk 'NR==1{print $1}')
     case "$status" in
       Success)
-        value=$(printf '%s' "$out" | awk '{print $2}')
-        # 지표가 2.0 처럼 소수로 온다. 정수로 바꾼다
-        printf '%.0f' "$value" 2>/dev/null || return 1
+        #
+        # SSM 이 Success 라도 값이 비어 있을 수 있다. curl 이 0 으로 끝나기 때문이다.
+        # 액추에이터가 아직 안 떴거나 지표가 없으면 그렇게 된다. 배포 직후에 흔하다.
+        #
+        # 그래서 숫자인지 먼저 본다. printf '%.0f' 에 그냥 넘기면 안 된다.
+        # 빈 값에 0 을 찍고 종료코드 0 을 주므로 실패를 못 걸러 내고, 그 0 이 곱해져
+        # baseline 을 무너뜨린다. 검산이 통과해 버린다.
+        #
+        value=$(printf '%s' "$out" | awk 'NR==1{print $2}')
+        case "$value" in
+          ''|*[!0-9.]*|*.*.*) return 1 ;;
+        esac
+        # 지표가 2.0 처럼 소수로 온다. 소수점 아래를 버려 정수로 쓴다
+        value="${value%%.*}"
+        [ -n "$value" ] && [ "$value" -ge 1 ] 2>/dev/null || return 1
+        printf '%s' "$value"
         return 0
         ;;
       Failed|Cancelled|TimedOut) return 1 ;;
@@ -165,6 +178,8 @@ open)
   # max_size 를 넘기면 AWS 가 거절하는데 메시지가 불친절하다. 여기서 먼저 막는다.
   max_size=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$ASG" \
     --region "$REGION" --query 'AutoScalingGroups[0].MaxSize' --output text)
+  # 0 을 받으면 아래 headroom 나눗셈이 0 으로 나눈다. close 와 헷갈리지 않게 여기서 막는다
+  [ "$DESIRED" -ge 1 ] || die "$DESIRED 대는 올릴 수 없다. 내리려면 $0 close 를 써라"
   [ "$DESIRED" -le "$max_size" ] \
     || die "$DESIRED 대는 max_size $max_size 를 넘는다. coupon_max_size 를 올리고 apply 하라"
 
@@ -284,6 +299,13 @@ open)
       printf '아직 이벤트를 안 열었다. 여는 대신 되돌려라.  %s close\n' "$0" >&2
       printf '그대로 열면 풀이 다 차는 순간에 커넥션이 마른다.\n' >&2
       printf '\n' >&2
+      #
+      # 성공으로 끝내지 않는다. 이 절이 마지막 되돌릴 수 있는 지점이라고 적어 두고
+      # 종료코드 0 을 주면, 사람이 안 보는 자리에서는 넘긴 사실이 사라진다.
+      # 인스턴스는 그대로 두고 나간다. 여기서 내리면 사람이 상태를 볼 기회를 잃는다.
+      #
+      show_status
+      exit 1
     fi
   fi
 
