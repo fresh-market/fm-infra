@@ -14,6 +14,15 @@
 # 왜 스케일링 정책에 맡기지 않나.
 # 2만 건이 몇 초에 몰리는데 알람 평가와 부팅에 수 분이 걸린다.
 # 확장이 끝나기 전에 이벤트가 끝나므로 미리 올려 두는 것이 본 수단이다.
+#
+# 커넥션 예산은 값을 베끼지 않고 잰다.
+#
+# 전에는 백엔드의 maximum-pool-size 세 값을 상수로 들고 있었다. 저쪽이 바뀌면 이쪽이 조용히
+# 틀리는데, 틀렸다는 사실이 어디에도 안 드러났다. 지금은 돌고 있는 인스턴스에게 SSM 으로
+# hikaricp_connections_max 를 물어본다. 파일도 저장소도 안 읽으므로 fm-infra 만 있으면 된다.
+#
+# 앱과 배치는 늘 떠 있어 2절에서 읽힌다. 전용은 3절이 올린 뒤에야 생기므로 5절에서 읽는다.
+# 그래서 2절은 "전용에 얼마가 남았나" 만 묻고 예측하지 않는다.
 
 set -euo pipefail
 
@@ -25,17 +34,84 @@ TG="$PROJECT-coupon"
 # max_connections 실측값이다 (2026-08-23, pending-decisions 2.2절).
 MAX_CONNECTIONS=60
 
-# 백엔드가 프로필별로 정한 풀 크기다 (application.yml, -batch, -coupon 의 maximum-pool-size).
-# 저쪽이 바뀌면 여기도 바꾼다. 어긋나면 검산이 조용히 틀린다.
-APP_POOL=8
-BATCH_POOL=4
-COUPON_POOL=2
-
 # 익스포터와 운영자 접속 몫이다. 실측이 아니라 잡아 둔 여유다.
 ADMIN_RESERVE=3
 
+# 풀 크기는 여기 없다. 백엔드가 소유하는 값이라 인스턴스에게 물어본다 (pool_max).
+
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'WARN: %s\n' "$*" >&2; }
+
+# ASG 에서 서비스 중인 인스턴스 하나를 고른다. 없으면 빈 문자열이다.
+asg_instance() {
+  local id
+  id=$(aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names "$1" \
+    --region "$REGION" --output text \
+    --query 'AutoScalingGroups[0].Instances[?LifecycleState==`InService`]|[0].InstanceId' 2>/dev/null || true)
+  [ "$id" = "None" ] && id=""
+  printf '%s' "$id"
+}
+
+# 태그로 인스턴스 하나를 고른다. 배치는 ASG 가 아니라 단독 인스턴스다.
+tagged_instance() {
+  local id
+  id=$(aws ec2 describe-instances --region "$REGION" --output text \
+    --filters "Name=tag:Role,Values=$1" "Name=instance-state-name,Values=running" \
+    --query 'Reservations[0].Instances[0].InstanceId' 2>/dev/null || true)
+  [ "$id" = "None" ] && id=""
+  printf '%s' "$id"
+}
+
+#
+# 그 인스턴스의 Hikari 최대 풀 크기를 읽는다. 못 읽으면 빈 문자열이다.
+#
+# 파일이 아니라 돌고 있는 프로세스에게 묻는 것이 요점이다. 그래야 프로필과 환경 변수를 다
+# 해석한 뒤의 값을 얻는다. 이 저장소가 예전에 rewriteBatchedStatements 로 그 차이에 물렸다.
+# yml 에는 있었는데 DB_URL 환경 변수가 그 기본값을 통째로 버려서 운영에는 없던 값이었다.
+#
+# 8081 은 ALB 와 모니터링에서만 열려 있다 (INF-12-21). 그래서 밖에서 긁지 않고 SSM 으로
+# 인스턴스 안에서 curl 한다. 포트를 하나도 안 연다.
+#
+pool_max() {
+  local iid="$1" cid out status value tmp
+  [ -n "$iid" ] || return 1
+
+  tmp=$(mktemp)
+  cat > "$tmp" <<'JSON'
+{
+  "commands": [
+    "curl -s --max-time 3 localhost:8081/actuator/prometheus | grep -m1 '^hikaricp_connections_max' | sed 's/.* //'"
+  ]
+}
+JSON
+  cid=$(aws ssm send-command --region "$REGION" --instance-ids "$iid" \
+    --document-name AWS-RunShellScript --parameters "file://$tmp" \
+    --query 'Command.CommandId' --output text 2>/dev/null || true)
+  rm -f "$tmp"
+  [ -n "$cid" ] && [ "$cid" != "None" ] || return 1
+
+  # 상한 20초다. 못 읽어도 이 스크립트는 계속 간다
+  local waited=0
+  while [ "$waited" -lt 20 ]; do
+    waited=$(( waited + 1 ))
+    out=$(aws ssm get-command-invocation --region "$REGION" \
+      --command-id "$cid" --instance-id "$iid" \
+      --query '[Status,StandardOutputContent]' --output text 2>/dev/null || true)
+    status=$(printf '%s' "$out" | awk '{print $1}')
+    case "$status" in
+      Success)
+        value=$(printf '%s' "$out" | awk '{print $2}')
+        # 지표가 2.0 처럼 소수로 온다. 정수로 바꾼다
+        printf '%.0f' "$value" 2>/dev/null || return 1
+        return 0
+        ;;
+      Failed|Cancelled|TimedOut) return 1 ;;
+    esac
+    sleep 1
+  done
+  return 1
+}
 
 asg_exists() {
   local n
@@ -108,42 +184,58 @@ open)
   [ "$db" = "available" ] || die "RDS 가 available 이 아니다 ($db)"
   log "   RDS $db"
 
-  # 2. 커넥션 예산. 넘기면 늘린 인스턴스가 커넥션을 못 잡고 교체가 반복된다.
   #
-  #    풀 크기는 백엔드가 프로필별로 정한 값이다 (application-*.yml).
-  #    앱 8, 배치 4, 선착순 2 다. 여기 값과 어긋나면 이 검산이 헛돈다.
+  # 2. 전용에 얼마가 남아 있나. 전용이 얼마를 쓸지는 여기서 묻지 않는다.
+  #
+  #    앱과 배치는 지금 돌고 있으므로 풀 크기를 실측한다. 전용은 아직 없어 못 읽는데, 그래서
+  #    예측하는 대신 남는 여유만 낸다. 실제로 얼마를 쓰는지는 5절이 실측으로 확정한다.
   #
   #    앱은 오토스케일링이라 이벤트 중 몇 대일지 모른다. 상한을 써서 최악으로 잡는다.
+  #
+  log "2. 여유 확인"
   app_max=$(aws autoscaling describe-auto-scaling-groups \
     --auto-scaling-group-names "$PROJECT-app" --region "$REGION" \
     --query 'AutoScalingGroups[0].MaxSize' --output text)
 
-  budget=$(( DESIRED * COUPON_POOL ))
-  baseline=$(( app_max * APP_POOL + BATCH_POOL + ADMIN_RESERVE ))
-  total=$(( budget + baseline ))
+  app_pool=$(pool_max "$(asg_instance "$PROJECT-app")" || true)
+  batch_pool=$(pool_max "$(tagged_instance batch)" || true)
 
-  log "2. 커넥션 예산 검산"
-  log "   앱 최대 ${app_max}대 x $APP_POOL + 배치 $BATCH_POOL + 관리 $ADMIN_RESERVE = $baseline"
-  log "   전용 ${DESIRED}대가 $budget 을 더해 $total / $MAX_CONNECTIONS"
+  if [ -z "$app_pool" ] || [ -z "$batch_pool" ]; then
+    #
+    # 못 읽어도 멈추지 않는다. 계측은 판정을 낫게 하려는 것이지 새 실패 지점이 아니다.
+    # 넘겼는지는 4절의 healthy 대기가, 얼마를 썼는지는 5절이 여전히 잡는다.
+    #
+    warn "풀 크기를 실측하지 못했다 (앱 '$app_pool' / 배치 '$batch_pool'). 여유 확인을 건너뛴다"
+    warn "SSM 이나 액추에이터를 확인하라. 4절과 5절은 그대로 돈다"
+    baseline=""
+  else
+    baseline=$(( app_max * app_pool + batch_pool + ADMIN_RESERVE ))
+    headroom=$(( MAX_CONNECTIONS - baseline ))
+    log "   앱 최대 ${app_max}대 x $app_pool (실측) + 배치 $batch_pool (실측) + 관리 $ADMIN_RESERVE = $baseline"
+    log "   전용에 남는 여유 $headroom / $MAX_CONNECTIONS"
 
-  # 넘긴 채로 올리면 실패하는 모양이 헷갈린다.
-  #
-  # 못 채우면 readiness 가 실패하고 ASG 가 교체하고 새 인스턴스가 같은 벽에 부딪힌다.
-  # 앱 버그와 구분되지 않는 교체 반복으로 나타나고, healthy 대기 상한 600초를 태우고서야 드러난다.
-  if [ "$total" -gt "$MAX_CONNECTIONS" ]; then
-    if [ "$FORCE" != "--force" ]; then
-      printf '\n' >&2
-      printf '커넥션 예산을 넘긴다. %s / %s\n' "$total" "$MAX_CONNECTIONS" >&2
-      printf '\n' >&2
-      printf '풀 크기가 앱 %s / 배치 %s / 선착순 %s 라는 가정이다.\n' "$APP_POOL" "$BATCH_POOL" "$COUPON_POOL" >&2
-      printf 'application-*.yml 이 더 줄였다면 실제로는 안 넘긴다. 그 경우 이 스크립트의 상수를 맞춰라.\n' >&2
-      printf '맞다면 %s 번째 인스턴스가 커넥션을 못 잡고 교체를 반복한다.\n' "$DESIRED" >&2
-      printf '앱 버그처럼 보이지만 원인은 커넥션 한도이고, 10분을 태우고서야 드러난다.\n' >&2
-      printf '\n' >&2
-      printf '확인했다면 --force 를 붙여라.  %s open %s --force\n' "$0" "$DESIRED" >&2
-      exit 1
+    if [ "$headroom" -le 0 ]; then
+      per=0
+    else
+      per=$(( headroom / DESIRED ))
     fi
-    log "   --force 로 강행한다"
+    log "   ${DESIRED}대면 대당 $per 까지 안전하다"
+
+    # 대당 하나도 못 주면 올릴 이유가 없다. 인스턴스는 뜨지만 이벤트에서 커넥션이 마른다
+    if [ "$per" -lt 1 ]; then
+      if [ "$FORCE" != "--force" ]; then
+        printf '\n' >&2
+        printf '전용에 줄 여유가 없다. 여유 %s 를 %s 대로 나누면 대당 %s 다.\n' "$headroom" "$DESIRED" "$per" >&2
+        printf '\n' >&2
+        printf '올려도 인스턴스는 뜬다. 유휴 커넥션은 적어서 기동은 성공한다.\n' >&2
+        printf '마르는 것은 풀이 다 차는 이벤트 순간이고, 그때는 되돌릴 수 없다.\n' >&2
+        printf '\n' >&2
+        printf '대수를 줄이거나 앱 max_size 를 낮춰라.\n' >&2
+        printf '확인했다면 --force 를 붙여라.  %s open %s --force\n' "$0" "$DESIRED" >&2
+        exit 1
+      fi
+      log "   --force 로 강행한다"
+    fi
   fi
 
   # 3. 미리 올린다. 스케일링 정책은 버스트를 못 받는다.
@@ -162,6 +254,38 @@ open)
     [ "$(date +%s)" -ge "$deadline" ] && die "healthy $healthy / $DESIRED. 상한 초과. 앱 로그를 확인하라"
     sleep 15
   done
+
+  #
+  # 5. 이제 전용 인스턴스가 있으므로 실제로 얼마를 쓰는지 읽는다.
+  #
+  #    이 자리가 마지막 되돌릴 수 있는 지점이다. 이벤트는 사람이 관리자 API 로 따로 열므로
+  #    여기서 넘긴 것을 알면 close 하고 다시 계획할 수 있다.
+  #
+  #    4절이 못 잡는 것을 이 절이 잡는다. 기동 실패는 유휴 커넥션만 있으면 되므로 풀이 커도
+  #    healthy 는 통과한다. 넘치는 것은 풀이 다 차는 이벤트 순간이고, 그것은 이 곱셈으로만 보인다.
+  #
+  log "5. 실측 검산"
+  coupon_pool=$(pool_max "$(asg_instance "$ASG")" || true)
+
+  if [ -z "$coupon_pool" ]; then
+    warn "전용 인스턴스에서 풀 크기를 못 읽었다. 검산을 건너뛴다"
+  elif [ -z "$baseline" ]; then
+    warn "2절에서 baseline 을 못 구해 합계를 못 낸다. 전용은 대당 $coupon_pool 이다"
+  else
+    used=$(( DESIRED * coupon_pool ))
+    total=$(( baseline + used ))
+    log "   전용 ${DESIRED}대 x $coupon_pool (실측) = $used"
+    log "   합계 $total / $MAX_CONNECTIONS"
+
+    if [ "$total" -gt "$MAX_CONNECTIONS" ]; then
+      printf '\n' >&2
+      printf '커넥션 예산을 넘긴다. %s / %s\n' "$total" "$MAX_CONNECTIONS" >&2
+      printf '\n' >&2
+      printf '아직 이벤트를 안 열었다. 여는 대신 되돌려라.  %s close\n' "$0" >&2
+      printf '그대로 열면 풀이 다 차는 순간에 커넥션이 마른다.\n' >&2
+      printf '\n' >&2
+    fi
+  fi
 
   log "준비 완료"
   show_status
