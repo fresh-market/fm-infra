@@ -46,11 +46,26 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 #
 # k6 만 받으면 "느려졌다" 까지만 알고 왜 느려졌는지는 못 읽는다.
 # 같은 시간축의 앱과 DB 를 함께 받아야 p99 가 튄 순간에 무엇이 있었는지 맞춰 볼 수 있다.
+#
+# p99 를 둘 받는다. 담는 응답이 달라 서로 다른 질문에 답한다.
+#
+#   k6_http_req_duration_p99        모든 요청.  혼잡(503)과 재시도까지 들어간다
+#                                   사용자가 얼마나 기다렸나.  503 을 받은 사람도 그만큼 기다렸다
+#   k6_coupon_settled_duration_p99  200, 409, 410 만.  서버가 판정을 끝낸 응답이다
+#                                   합격 판정은 이쪽이다 (coupon.md 8장이 정한 모집단)
+#
+# 합격 판정에 앞엣것을 쓰면 안 된다. congested-budget 503 은 정확히 commit-wait 을 태우고
+# 끊기므로, 예산을 줄이는 것만으로 그 값이 내려간다. 앱은 하나도 안 빨라졌는데도 그렇다.
+#
+# 둘의 간격이 세 번째 정보다. 벌어져 있으면 혼잡이 많거나 느리다는 뜻이다.
 METRICS=$(cat <<'LIST'
 k6_http_reqs_total
 k6_http_req_duration_p99
 k6_http_req_duration_p95
 k6_http_req_duration_avg
+k6_coupon_settled_duration_p99
+k6_coupon_settled_duration_p95
+k6_coupon_settled_duration_avg
 k6_http_req_waiting_p99
 k6_http_req_blocked_p99
 k6_http_req_connecting_p99
@@ -60,6 +75,7 @@ k6_dropped_iterations_total
 k6_iteration_duration_p99
 k6_coupon_issued_total
 k6_coupon_sold_out_total
+k6_coupon_sold_out_final_total
 k6_coupon_congested_total
 k6_coupon_rejected_total
 k6_coupon_unexpected_total
@@ -227,10 +243,12 @@ checks = [
     ('k6_dropped_iterations_total', '버려진 반복', max),
     ('k6_coupon_issued_total', '발급 200', max),
     ('k6_coupon_sold_out_total', '소진 409', max),
+    ('k6_coupon_sold_out_final_total', '최종 소진 410', max),
     ('k6_coupon_congested_total', '혼잡 503', max),
     ('k6_coupon_unexpected_total', '예상 밖', max),
     ('k6_coupon_connect_failed_total', '연결 실패', max),
-    ('k6_http_req_duration_p99', 'p99 (초)', max),
+    ('k6_coupon_settled_duration_p99', 'SLO p99 (초)', max),
+    ('k6_http_req_duration_p99', '체감 p99 (초)', max),
     ('hikaricp_connections_pending', '커넥션 대기 최대', max),
     ('coupon_issue_queue_size', '발급 큐 최대', max),
 ]
