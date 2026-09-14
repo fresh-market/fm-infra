@@ -6,6 +6,8 @@
 #   ./loadtest-fault.sh cache       전용 인스턴스에서 캐시로 가는 패킷을 버린다
 #   ./loadtest-fault.sh db          전용 인스턴스에서 DB 로 가는 패킷을 버린다
 #   ./loadtest-fault.sh app+cache   위 둘을 함께
+#   ./loadtest-fault.sh cache-failover  캐시를 실제로 페일오버시킨다 (test-failover)
+#   ./loadtest-fault.sh db-failover     DB 를 실제로 페일오버시킨다 (reboot with failover)
 #   ./loadtest-fault.sh status      지금 무엇이 끊겨 있는지
 #   ./loadtest-fault.sh restore     무엇이 걸려 있든 되돌린다
 #
@@ -86,12 +88,46 @@ stop_one_app() {
   [ -n "$ids" ] || die "도는 전용 인스턴스가 없다"
   first=$(printf '%s\n' $ids | head -1)
   left=$(( $(printf '%s\n' $ids | wc -w) - 1 ))
-  log "인스턴스 정지  $first  (남는 대수 $left)"
-  # docker stop 을 쓴다. systemctl stop 은 compose down 으로 컨테이너를 지워
-  # 종료 로그가 사라진다. 큐를 비우고 내려갔는지 확인할 수 없다.
-  # stop_grace_period 45초 안에 스프링이 SmartLifecycle.stop 을 돌린다.
-  run_ssm "$first" 'docker stop freshmarket >/dev/null && echo stopped'
+  log "컨테이너 급사(SIGKILL)  $first  (남는 대수 $left)"
+  # docker kill 이다. docker stop 은 SIGTERM 을 보내 stop_grace_period 45초 안에 스프링이
+  # SmartLifecycle.stop 으로 큐를 비우고 내려간다. 그러면 우아한 종료라 재고 손실이
+  # 0 으로 나오는 것이 당연해지고, 시스템이 견딘 것인지 비우고 내려간 것인지 못 가른다.
+  #
+  # queue-capacity 의 존재 이유가 "앱이 급사했을 때 잃는 건수의 상한"(coupon.md 8장)인데
+  # 우아하게 내려가면 그 상한이 한 번도 시험되지 않는다.
+  #
+  # 저장소의 다른 문서들도 docker kill 을 적고 있다 (operation-guideline.md OPS-2-01,
+  # 백엔드공통_앱과DB_장애대응구조.md). 이 스크립트만 어긋나 있었다.
+  #
+  # systemctl stop 은 쓰지 않는다. compose down 으로 컨테이너를 지워 종료 로그가 사라진다.
+  run_ssm "$first" 'docker kill freshmarket >/dev/null && echo killed'
   printf 'stop|%s\n' "$first" >> "$STATE"
+}
+
+# ---------------------------------------------------------------- 페일오버
+
+# iptables 단절은 "통째로 안 닿는다" 를 잰다. 운영에서 더 흔한 것은 Multi-AZ 페일오버다.
+# 수십 초 동안 부분적으로 끊기고 엔드포인트가 다른 노드를 가리키게 된다.
+# db_multi_az 를 켜 둔 이유가 이 시험이다 (terraform.tfvars).
+#
+# 이 둘은 restore 가 필요 없다. AWS 가 스스로 되돌려 놓는다.
+failover_cache() {
+  local rg="$PROJECT-cache" node
+  node=$(aws elasticache describe-replication-groups --region "$REGION" \
+         --replication-group-id "$rg" \
+         --query 'ReplicationGroups[0].NodeGroups[0].NodeGroupId' --output text)
+  log "캐시 페일오버  $rg  노드그룹 $node"
+  aws elasticache test-failover --region "$REGION" \
+    --replication-group-id "$rg" --node-group-id "$node" > /dev/null
+  printf 'failover|cache\n' >> "$STATE"
+}
+
+failover_db() {
+  local id="$PROJECT-db"
+  log "DB 페일오버  $id  (reboot with failover)"
+  aws rds reboot-db-instance --region "$REGION" \
+    --db-instance-identifier "$id" --force-failover > /dev/null
+  printf 'failover|db\n' >> "$STATE"
 }
 
 # ---------------------------------------------------------------- 복구
@@ -149,6 +185,9 @@ case "${ARGS[0]}" in
   cache)     cut_link cache ;;
   db)        cut_link db ;;
   app+cache) stop_one_app; cut_link cache ;;
+  cache-failover) failover_cache ;;
+  db-failover)    failover_db ;;
+  app+cache-failover) stop_one_app; failover_cache ;;
   *) die "모르는 시나리오: ${ARGS[0]}" ;;
 esac
 
