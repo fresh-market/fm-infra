@@ -143,8 +143,21 @@ restore_all() {
           run_ssm "$id" "while iptables -D OUTPUT -p tcp --dport $b -j DROP 2>/dev/null; do :; done; while iptables -D FORWARD -p tcp --dport $b -j DROP 2>/dev/null; do :; done; echo cleared"
         done ;;
       stop)
-        log "인스턴스 기동  $a"
-        run_ssm "$a" 'docker start freshmarket >/dev/null && echo started' ;;
+        # 인스턴스가 사라졌을 수 있다.
+        #
+        # ASG 가 비정상으로 보고 갈아치우면 그 인스턴스는 없다. run_ssm 이 die 로 끝나면
+        # 아래 rm 이 안 돌아 상태 파일이 남고, 다음 회차가 가드에 걸려 주입도 못 한다.
+        # 실제로 그렇게 두 회차를 날렸다. 그래서 여기서는 실패해도 넘어간다.
+        if aws ec2 describe-instances --region "$REGION" --instance-ids "$a" \
+             --query 'Reservations[].Instances[?State.Name==`running`]' --output text 2>/dev/null | grep -q .; then
+          log "인스턴스 기동  $a"
+          run_ssm "$a" 'docker start freshmarket >/dev/null && echo started' || log "  기동 실패. 넘어간다"
+        else
+          log "인스턴스가 없다  $a  (ASG 가 갈아치웠다)"
+        fi ;;
+      failover)
+        # AWS 가 스스로 되돌린다. 되돌릴 것이 없고 기록만 지운다
+        log "페일오버는 되돌릴 것이 없다  ($a)" ;;
     esac
   done < "$STATE"
   rm -f "$STATE"
