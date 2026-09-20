@@ -515,3 +515,25 @@ SQL 은 `raw.githubusercontent.com` 에서 바로 받는다. 레포가 public �
 **시크릿을 남기는 것이 의도다.** SSM 표준 파라미터는 무료라 지워도 아끼는 것이 없는데, 지우면 재구축 때 전부를 손으로 다시 넣어야 한다. 그래서 Terraform 밖에 둔다. 파괴하고 다시 올려도 **비밀 재입력이 없다.**
 
 마지막에 `terraform state` 가 아니라 **AWS 에 직접 조회해** 잔여를 센다. 상태와 실제가 어긋날 수 있다.
+
+### destroy 가 중간에 실패했다면
+
+**다시 돌리기 전에 무엇이 남았는지부터 센다.** 앞의 apply 때문이다. 상태가 이미 비어 있으면 그 apply 는 가드를 반영하는 대신 **전부를 새로 만든다.** 뒤이은 destroy 가 방금 만든 것을 도로 지우므로 결과는 같지만, RDS 와 캐시 생성이 각각 10분대라 왕복에 30분 넘게 걸리고 그동안 과금된다.
+
+```bash
+aws ec2 describe-instances --filters Name=instance-state-name,Values=running,pending \
+  --query 'length(Reservations[].Instances[])' --output text
+aws rds describe-db-instances --query 'length(DBInstances)' --output text
+aws elasticache describe-replication-groups --query 'length(ReplicationGroups)' --output text
+aws ec2 describe-vpcs --filters Name=isDefault,Values=false --query 'length(Vpcs)' --output text
+```
+
+넷이 모두 0 이면 자원은 이미 다 지워진 것이다. 그때 남은 것은 Terraform 이 마지막에 못 지운 하나뿐이므로 **그것만 손으로 지우고 끝낸다.**
+
+**CloudFront OAC 가 가장 흔하다.** `OriginAccessControlInUse` 로 끝났다면 배포 삭제가 아직 전파되는 중이다. 전파는 몇 분이 걸리고, 그 뒤에 OAC 하나만 지우면 된다.
+
+```bash
+aws cloudfront list-origin-access-controls \
+  --query 'OriginAccessControlList.Items[].{Id:Id,Name:Name}' --output table
+aws cloudfront delete-origin-access-control --id <ID> --if-match <ETag>
+```
