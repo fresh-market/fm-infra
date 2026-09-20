@@ -144,6 +144,64 @@ CDN 도메인과 ALB 주소는 재구축마다 바뀌지만 **손댈 것이 없�
 
 첫 인스턴스는 `current-sha` 가 `bootstrap` 인 채로 떠서 이미지를 못 받고 unhealthy 가 된다. **이것은 손댈 필요가 없다.** 사전 점검이 healthy 0 을 지킬 용량 없음으로 보고 통과시키고, 배포가 새 인스턴스를 띄운 뒤 그 인스턴스를 종료한다.
 
+### apply 가 중간에 끊겼다면
+
+**`apply.sh` 는 한 번만 돌리면 된다.** 5단계가 `terraform apply` 바로 뒤에서 엔드포인트를 SSM 에 싣기 때문이다. 두 번 돌려야 하는 구조가 아니다.
+
+**그런데 도중에 죽으면 세 가지가 한꺼번에 남는다.** 2026-09-20 에 실제로 겪었다. 증상이 서로 달라 보여도 뿌리가 하나다.
+
+| 증상 | 무엇이 남았나 |
+|---|---|
+| 다음 `apply` 가 `Error acquiring the state lock` 으로 멈춘다 | terraform 이 락을 못 풀고 죽었다 |
+| RDS 나 캐시가 `AlreadyExists` 로 실패한다 | AWS 에는 만들어졌는데 상태 파일에 안 들어갔다 |
+| 앱이 `UnknownHostException: unset` 으로 재시작을 반복한다 | 5단계까지 못 가서 `db-endpoint` 가 `unset` 그대로다 |
+
+순서대로 푼다. **앞의 둘을 풀어야 `apply` 가 5단계까지 간다.**
+
+**1. 락을 푼다.** 먼저 정말 죽었는지 본다. 도는 `apply` 를 풀면 상태가 깨진다.
+
+```bash
+ps -ax | grep [t]erraform          # 아무것도 없어야 한다
+```
+
+락 정보에 찍힌 `Who` 가 자기 기계이고 프로세스가 없으면 죽은 락이다.
+
+```bash
+cd terraform
+terraform force-unlock <락 ID>     # ID 는 오류 메시지의 Lock Info 에 있다
+```
+
+**2. 상태에서 빠진 자원을 붙인다.** `terraform state list` 로 무엇이 없는지 먼저 확인한다.
+
+```bash
+terraform import aws_db_instance.main freshmarket-db
+terraform import aws_elasticache_replication_group.main freshmarket-cache
+```
+
+**지우고 다시 만들면 안 된다.** RDS 를 지우면 그 안의 데이터가 같이 간다.
+
+**3. 다시 돌린다.**
+
+```bash
+./scripts/apply.sh
+```
+
+이제 5단계가 돌아 `db-endpoint` 와 `cache-endpoint` 와 `cdn-domain` 이 채워진다. 값이 들어갔는지 눈으로 본다.
+
+```bash
+for p in db-endpoint cache-endpoint cdn-domain; do
+  aws ssm get-parameter --name "/freshmarket/$p" --query 'Parameter.Value' --output text
+done
+```
+
+**4. 배포를 다시 돌린다.** 엔드포인트가 비어 있던 동안 뜬 인스턴스는 그 값을 들고 있다. 새 값은 인스턴스를 갈아야 들어간다.
+
+```bash
+./scripts/deploy.sh
+```
+
+**배포 실패가 이 증상의 유일한 신호는 아니다.** 엔드포인트가 비어 있으면 ASG 가 헬스체크 실패로 6분마다 인스턴스를 교체하므로, 고치기 전까지 과금이 계속 샌다.
+
 ## 세션 단위로 껐다 켠다
 
 상시 가동이 필요 없을 때 쓴다.

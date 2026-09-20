@@ -7,6 +7,7 @@ fresh-market 백엔드의 인프라다. Terraform 으로 AWS 를 만들고, `mai
 | 하려는 것 | 볼 곳 |
 |---|---|
 | 처음 올린다 | `./scripts/apply.sh`. 근거는 [`docs/deploy/README.md`](docs/deploy/README.md) |
+| apply 가 중간에 끊겼다 | 같은 문서의 "apply 가 중간에 끊겼다면". 락과 상태와 엔드포인트가 함께 남는다 |
 | 껐다 켠다, 지운다 | 같은 문서의 "세션 단위로", "전부 지운다" |
 | 배포가 어떻게 도는지 | 같은 문서 |
 | 왜 이렇게 정했는지 | [`docs/system-design/`](docs/system-design/) |
