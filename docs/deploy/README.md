@@ -528,12 +528,38 @@ aws elasticache describe-replication-groups --query 'length(ReplicationGroups)' 
 aws ec2 describe-vpcs --filters Name=isDefault,Values=false --query 'length(Vpcs)' --output text
 ```
 
-넷이 모두 0 이면 자원은 이미 다 지워진 것이다. 그때 남은 것은 Terraform 이 마지막에 못 지운 하나뿐이므로 **그것만 손으로 지우고 끝낸다.**
+넷이 모두 0 이면 비싼 자원은 이미 다 지워진 것이다. 그때도 셋이 남는다. **상태 밖의 CloudFront 배포와 고아 EBS 볼륨과 상태 파일의 유령 항목이다.** 아래 순서로 그것만 손으로 치운다.
 
-**CloudFront OAC 가 가장 흔하다.** `OriginAccessControlInUse` 로 끝났다면 배포 삭제가 아직 전파되는 중이다. 전파는 몇 분이 걸리고, 그 뒤에 OAC 하나만 지우면 된다.
+**`OriginAccessControlInUse` 로 끝났다면 상태 밖에 배포가 남은 것이다.** OAC 자체는 죄가 없다. CloudFront 배포 하나가 그것을 물고 있어서 삭제가 409 로 막힌다. 그 배포는 Terraform 이 모르는 자원이라 `terraform state list` 에 안 나오고, 그래서 destroy 를 아무리 다시 돌려도 사라지지 않는다.
+
+**강제 종료된 apply 가 이것을 만든다.** apply 가 `SIGKILL` 로 죽으면 Terraform 은 방금 만든 자원을 상태 파일에 못 적는다. AWS 에는 있고 상태에는 없는 자원이 그렇게 생긴다. `Ctrl+C` 는 다르다. Terraform 이 받아서 하던 작업을 마치고 상태를 쓰고 끝낸다. **그래서 apply 를 멈출 때는 `kill -9` 를 쓰지 않는다.**
+
+배포를 먼저 지워야 OAC 가 풀린다. 비활성화하고 전파를 기다린 뒤 지우는 순서이고, 전파에 5분에서 15분이 걸린다.
 
 ```bash
-aws cloudfront list-origin-access-controls \
-  --query 'OriginAccessControlList.Items[].{Id:Id,Name:Name}' --output table
-aws cloudfront delete-origin-access-control --id <ID> --if-match <ETag>
+aws cloudfront list-distributions \
+  --query 'DistributionList.Items[].{Id:Id,Comment:Comment,Enabled:Enabled}' --output table
+
+aws cloudfront get-distribution-config --id <배포ID> > cf.json
+python3 -c "import json;d=json.load(open('cf.json'))['DistributionConfig'];d['Enabled']=False;json.dump(d,open('cf-off.json','w'))"
+aws cloudfront update-distribution --id <배포ID> \
+  --distribution-config file://cf-off.json --if-match <ETag>
+
+# Status 가 Deployed 로 돌아올 때까지 기다린 뒤에 지운다
+aws cloudfront delete-distribution --id <배포ID> --if-match <새 ETag>
+aws cloudfront delete-origin-access-control --id <OAC ID> --if-match <ETag>
+```
+
+**고아 EBS 볼륨도 남는다.** 스크립트의 마지막 단계가 그것을 지우는데, destroy 가 실패하면 `set -e` 가 거기 도달하기 전에 멈춘다. 손으로 지운다.
+
+```bash
+aws ec2 describe-volumes --filters Name=status,Values=available \
+  --query 'Volumes[].VolumeId' --output text | xargs -n1 aws ec2 delete-volume --volume-id
+```
+
+**정리가 끝나면 상태에 남은 유령을 뺀다.** 실패한 자원은 AWS 에서 사라진 뒤에도 상태 파일에 남는다.
+
+```bash
+terraform state list                 # 비어 있어야 한다
+terraform state rm <주소>            # 남아 있으면 뺀다
 ```
