@@ -917,6 +917,151 @@
           }
         }
       ]
+    },
+    {
+      "type": "row",
+      "title": "Redis 키 재건",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "기여가 얼마나 늦나",
+      "description": "주도자가 재건 락을 세운 뒤 각 인스턴스가 자기 큐를 다 올리기까지 걸린 시간이다. 빨간 선이 지금 기다리는 값(coupon.issue.rebuild-contribute-wait, 3초)이고, 실제 값이 그보다 한참 낮게 깔리면 그만큼 줄여 장애 시간을 줄일 수 있다.",
+      "gridPos": {
+        "x": 0,
+        "y": 61,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "showPoints": "always",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "coupon_seq_rebuild_contribute_lag_seconds_max",
+          "legendFormat": "{{instance_id}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "기여 분포와 횟수",
+      "description": "회차가 쌓여야 값을 좁힐 수 있다. 분위수는 여러 회차에 걸친 분포이고, 횟수는 재건이 몇 번 돌았고 그때 몇 대가 올렸는지를 뜻한다.",
+      "gridPos": {
+        "x": 12,
+        "y": 61,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 6,
+            "showPoints": "always",
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "coupon_seq_rebuild_contribute_lag_seconds{quantile=~\"0.5|0.95|0.99\"}",
+          "legendFormat": "{{instance_id}} p{{quantile}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "increase(coupon_seq_rebuild_contribute_lag_seconds_count[5m])",
+          "legendFormat": "{{instance_id}} 기여 횟수",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
     }
   ]
 }
