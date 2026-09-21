@@ -57,10 +57,14 @@ STATE="${FAULT_STATE:-/tmp/${PROJECT}-fault.state}"
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+# 한 줄에 하나씩 뱉는다.
+#
+# --output text 는 값이 여럿이면 탭으로 한 줄에 붙인다. 그대로 head -1 하면 세 대가
+# 통째로 딸려 와 SendCommand 가 instanceIds 검증에서 거절한다. 실제로 그렇게 깨졌다.
 coupon_ids() {
   aws ec2 describe-instances --region "$REGION" \
     --filters "Name=tag:Role,Values=coupon" "Name=instance-state-name,Values=running" \
-    --query 'Reservations[].Instances[].InstanceId' --output text
+    --query 'Reservations[].Instances[].InstanceId' --output text | tr '\t' '\n' | grep -v '^$'
 }
 
 run_ssm() {  # $1=instance $2=shell
@@ -99,22 +103,23 @@ cut_link() {  # $1 = cache|db
   port=$(endpoint_port "$1" | awk '{print $2}')
   ids=$(coupon_ids)
   [ -n "$ids" ] || die "도는 전용 인스턴스가 없다"
-  for id in $ids; do
+  while IFS= read -r id; do
+    [ -n "$id" ] || continue
     log "$id 에서 $1(:$port) 패킷 차단"
     # OUTPUT 과 FORWARD 둘 다 넣는다. 앱이 도커 브리지 안에서 돌아 컨테이너가 내보내는
     # 패킷은 호스트의 OUTPUT 을 안 지나고 FORWARD 를 지난다. OUTPUT 만 넣었다가 주입이
     # 안 먹은 채로 회차를 통과로 읽을 뻔했다 (2026-08-31).
     run_ssm "$id" "iptables -I OUTPUT -p tcp --dport $port -j DROP; iptables -I FORWARD -p tcp --dport $port -j DROP; echo blocked"
-  done
-  printf 'block|%s|%s|%s\n' "$1" "$port" "$(echo $ids)" >> "$STATE"
+  done <<< "$ids"
+  printf 'block|%s|%s|%s\n' "$1" "$port" "$(printf '%s' "$ids" | tr '\n' ' ')" >> "$STATE"
 }
 
 stop_one_app() {
   local ids first left
   ids=$(coupon_ids)
   [ -n "$ids" ] || die "도는 전용 인스턴스가 없다"
-  first=$(printf '%s\n' $ids | head -1)
-  left=$(( $(printf '%s\n' $ids | wc -w) - 1 ))
+  first=$(printf '%s\n' "$ids" | head -1)
+  left=$(( $(printf '%s\n' "$ids" | grep -c .) - 1 ))
   log "컨테이너 급사(SIGKILL)  $first  (남는 대수 $left)"
   # docker kill 이다. docker stop 은 SIGTERM 을 보내 stop_grace_period 45초 안에 스프링이
   # SmartLifecycle.stop 으로 큐를 비우고 내려간다. 그러면 우아한 종료라 재고 손실이
@@ -297,7 +302,9 @@ lose_tail() {
     out=$(redis_send EVAL "$LOST_TAIL_LUA" 3 \
             "coupon:$cid:seq" "coupon:$cid:pending" "coupon:$cid:counter" "$lost" | tr -d '\r')
     log "쿠폰 $cid  counter 를 $lost 만큼 되돌리고 그만큼의 seq 와 pending 을 지웠다"
-    printf '%s' "$out" | grep -q 'counter-absent' && log "  counter 가 없다. 이미 유실된 상태다"
+    # || true 가 필요하다. grep 이 못 찾으면 1 을 내고 그것이 루프 본문의 마지막 값이라
+    # set -e 가 스크립트를 죽인다. 실제로 "주입 완료" 를 못 찍고 끝났다
+    printf '%s' "$out" | grep -q 'counter-absent' && log "  counter 가 없다. 이미 유실된 상태다" || true
   done
   printf 'keys|lost-tail\n' >> "$STATE"
 }
