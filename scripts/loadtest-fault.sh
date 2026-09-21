@@ -8,22 +8,34 @@
 #   ./loadtest-fault.sh app+cache   위 둘을 함께
 #   ./loadtest-fault.sh cache-failover  캐시를 실제로 페일오버시킨다 (test-failover)
 #   ./loadtest-fault.sh db-failover     DB 를 실제로 페일오버시킨다 (reboot with failover)
+#   ./loadtest-fault.sh lost-tail   복제가 밀린 채 승격된 것을 흉내낸다 (가장 흔하다)
 #   ./loadtest-fault.sh seq-loss    순번 키(counter)를 지워 재건을 일으킨다
 #   ./loadtest-fault.sh cache-wipe  순번 네 키를 전부 지운다 (캐시 전손)
 #   ./loadtest-fault.sh status      지금 무엇이 끊겨 있는지
 #   ./loadtest-fault.sh restore     무엇이 걸려 있든 되돌린다
 #
 #   --hold <초>      그 시간 뒤 스스로 되돌린다
+#   --lost <건수>    lost-tail 전용. 몇 건의 발급을 유실시킬지 (기본 200)
 #   --backlog <초>   seq-loss 전용. 그 시간만큼 DB 를 막아 큐를 쌓은 뒤 지운다
 #
-# 왜 키를 직접 지우는가.
+# 왜 키를 직접 건드리는가.
 #
-# 페일오버로는 키가 안 사라진다. test-failover 는 계획된 승격이라 AWS 가 복제본이
+# 페일오버로는 아무것도 안 사라진다. test-failover 는 계획된 승격이라 AWS 가 복제본이
 # 따라잡기를 기다린 뒤에 넘긴다. 2026-09-21 회차에서 캐시 페일오버를 걸고도 재건이
 # 한 번도 안 일어난 이유가 이것이다.
 #
-# 재건을 일으키는 것은 counter 하나다. coupon-issue-seq.lua 가 그 키가 없을 때만
-# -2 를 내고, 그것을 받은 요청이 재건을 띄운다. seq 나 free 만 지우면 재건이 안 걸린다.
+# 어느 것이 실제로 잘 일어나나.
+#
+#   lost-tail   높다.  Valkey 복제는 비동기다. 복제본이 마지막 쓰기 몇 건을 못 받은 채
+#                      승격되면 counter 가 뒤로 간다. 키는 하나도 안 사라진다
+#   seq-loss    낮다.  노드가 빈 채로 살아나야 한다. Multi-AZ 복제라 둘이 같이 죽어야 한다
+#   cache-wipe  가장 낮다. 전손이다
+#
+# 무엇이 재건을 부르나.
+#
+# counter 가 **없을 때만** coupon-issue-seq.lua 가 -2 를 내고 그것을 받은 요청이 재건을
+# 띄운다. lost-tail 은 counter 를 줄이기만 하므로 **재건이 안 걸린다.** 이미 DB 에 커밋된
+# 번호가 조용히 다시 나가고, 그것을 막는 것은 앱이 아니라 스키마의 uk_mc_coupon_seq 다.
 #
 # 왜 보안 그룹이 아니라 iptables 인가.
 #
@@ -156,25 +168,35 @@ failover_db() {
 # 명령을 base64 로 실어 보낸다. SSM 파라미터가 JSON 이라 \r 을 그대로 넣으면 JSON 이
 # 그것을 진짜 복귀 문자로 풀어 버려 셸 명령이 그 자리에서 잘린다.
 
-# 원격에서 돌릴 스크립트 본문을 만든다. $1=캐시 호스트 $2=보낼 명령 한 줄
+# 명령을 RESP 배열로 엮는다. 인자에 무엇이 들었든 길이로 재므로 따옴표가 안 깨진다
+redis_payload() {
+  local a
+  LC_ALL=C
+  printf '*%d\r\n' "$#"
+  for a in "$@"; do printf '$%d\r\n%s\r\n' "${#a}" "$a"; done
+  printf '*1\r\n$4\r\nQUIT\r\n'
+}
+
+# 원격에서 돌릴 스크립트 본문. $1=캐시 호스트, 나머지=보낼 명령의 인자들
+#
+# 페이로드를 base64 로 실어 보낸다. SSM 파라미터가 JSON 이라 \r 을 그대로 넣으면 JSON 이
+# 그것을 진짜 복귀 문자로 풀어 버려 셸 명령이 그 자리에서 잘린다.
 redis_script() {
+  local host="$1"; shift
   cat <<REMOTE
-CMD='$2'
-exec 3<>/dev/tcp/$1/6379 || { echo REDIS-CONNECT-FAILED; exit 1; }
-{ printf '%s\r\n' "\$CMD"; printf 'QUIT\r\n'; } >&3
-timeout 5 cat <&3 || true
+exec 3<>/dev/tcp/$host/6379 || { echo REDIS-CONNECT-FAILED; exit 1; }
+echo $(redis_payload "$@" | base64 | tr -d '\n') | base64 -d >&3
+timeout 10 cat <&3 || true
 REMOTE
 }
 
-# $1 = 보낼 명령 한 줄  ->  응답 원문을 표준출력으로
+# $1.. = 보낼 명령의 인자들  ->  응답 원문을 표준출력으로
 redis_send() {
   local host id
-  # 명령은 작은따옴표 안에 실린다. 명령에 작은따옴표가 있으면 원격 스크립트가 깨진다
-  case "$1" in *\'*) die "명령에 작은따옴표를 못 쓴다: $1" ;; esac
   host=$(endpoint_port cache | awk '{print $1}')
   id=$(coupon_ids | head -1)
   [ -n "$id" ] || die "도는 전용 인스턴스가 없다"
-  run_ssm "$id" "echo $(redis_script "$host" "$1" | base64 | tr -d '\n') | base64 -d | bash"
+  run_ssm "$id" "echo $(redis_script "$host" "$@" | base64 | tr -d '\n') | base64 -d | bash"
   printf '%s' "$SSM_OUT"
 }
 
@@ -183,10 +205,10 @@ redis_send() {
 # KEYS 는 서버를 잠그지만 여기 키스페이스는 이벤트 몇 개와 인증 키뿐이라 밀리초 안에 끝난다.
 # SCAN 은 커서를 여러 번 왕복해야 하고 그 왕복이 SSM 이라 오히려 초 단위로 늘어난다.
 counter_keys() {
-  redis_send 'KEYS coupon:*:counter' | grep -o 'coupon:[0-9]*:counter' | sort -u
+  redis_send KEYS 'coupon:*:counter' | grep -o 'coupon:[0-9]*:counter' | sort -u
 }
 
-# 키 목록을 한 줄짜리 DEL 인자로 바꾼다. $1 = counter|wipe
+# 지울 키를 한 줄에 하나씩 뱉는다. $1 = counter|wipe
 #
 # 주변 IFS 에 기대지 않는다. 개행이 IFS 에 없는 셸에서는 `for k in $keys` 가 전부를
 # 한 단어로 묶어 DEL 이 깨진 키 이름을 받는다. 실제로 그렇게 깨졌다.
@@ -196,21 +218,88 @@ expand_targets() {
     [ -n "$k" ] || continue
     cid=${k#coupon:}; cid=${cid%:counter}
     if [ "$mode" = wipe ]; then
-      printf 'coupon:%s:counter coupon:%s:seq coupon:%s:free coupon:%s:pending ' "$cid" "$cid" "$cid" "$cid"
+      printf 'coupon:%s:counter\ncoupon:%s:seq\ncoupon:%s:free\ncoupon:%s:pending\n' "$cid" "$cid" "$cid" "$cid"
     else
-      printf 'coupon:%s:counter ' "$cid"
+      printf 'coupon:%s:counter\n' "$cid"
     fi
   done
 }
 
+# 한 줄에 하나씩 오는 키를 배열로 읽는다
+read_targets() {  # $1 = counter|wipe  ->  TARGETS 배열을 채운다
+  local k
+  TARGETS=()
+  while IFS= read -r k; do [ -n "$k" ] && TARGETS+=("$k"); done < <(expand_targets "$1")
+  [ ${#TARGETS[@]} -gt 0 ] || die "지울 counter 키가 없다. 이벤트가 열려 있는지 확인하라"
+}
+
 # $1 = counter|wipe
 drop_keys() {
-  local targets
-  targets=$(expand_targets "$1")
-  [ -n "$targets" ] || die "지울 counter 키가 없다. 이벤트가 열려 있는지 확인하라"
-  log "키 삭제: $targets"
-  redis_send "DEL $targets" > /dev/null
+  read_targets "$1"
+  log "키 삭제: ${TARGETS[*]}"
+  redis_send DEL "${TARGETS[@]}" > /dev/null
   printf 'keys|%s\n' "$1" >> "$STATE"
+}
+
+# 복제가 밀린 채 승격된 것을 흉내낸다. $1 = 유실시킬 건수
+#
+# 이것이 실제 페일오버에서 확률이 가장 높은 모양이다. Valkey 복제는 비동기라 복제본이
+# 마지막 쓰기 몇 건을 못 받은 채로 프라이머리가 된다. 키가 사라지는 것이 아니라
+# **counter 가 뒤로 간다.**
+#
+# 순번 확보는 한 Lua 안에서 HSET/ZADD/INCR 를 함께 하므로 복제 스트림의 꼬리가 잘리면
+# 그 세 효과가 통째로 같이 사라진다. 그래서 seq 와 pending 에서도 같은 회원을 지운다.
+# counter 만 줄이면 실제로 안 생기는 모양이라 시험의 값이 떨어진다.
+#
+# **이 경우에는 재건이 안 걸린다.** coupon-issue-seq.lua 는 counter 가 없을 때만 -2 를
+# 낸다. 값이 작아진 것은 못 본다. 그래서 이미 DB 에 커밋된 번호가 조용히 다시 나가고,
+# 그것을 막는 것은 앱이 아니라 스키마의 uk_mc_coupon_seq 다. 이 회차가 보려는 것이
+# 바로 그 지점이다.
+LOST_TAIL_LUA=$(cat <<'LUAEOF'
+-- KEYS[1]=seq KEYS[2]=pending KEYS[3]=counter  ARGV[1]=유실시킬 건수
+local n = tonumber(redis.call('GET', KEYS[3]))
+if not n then return {err = 'counter-absent'} end
+local floor = n - tonumber(ARGV[1])
+if floor < 0 then floor = 0 end
+
+-- 먼저 모으고 나중에 지운다. 훑는 중에 지우면 HSCAN 이 건너뛰거나 두 번 줄 수 있다
+local doomed = {}
+local cursor = '0'
+repeat
+  local page = redis.call('HSCAN', KEYS[1], cursor, 'COUNT', 500)
+  cursor = page[1]
+  local arr = page[2]
+  for i = 1, #arr, 2 do
+    local v = arr[i + 1]
+    local colon = string.find(v, ':')
+    local num = tonumber(colon and string.sub(v, 1, colon - 1) or v)
+    if num and num > floor then doomed[#doomed + 1] = arr[i] end
+  end
+until cursor == '0'
+
+for i = 1, #doomed do
+  redis.call('HDEL', KEYS[1], doomed[i])
+  redis.call('ZREM', KEYS[2], doomed[i])
+end
+
+-- DECRBY 로 줄인다. SET 은 counter 의 만료를 지워 네 키의 수명이 갈라진다
+redis.call('DECRBY', KEYS[3], n - floor)
+return {floor, #doomed}
+LUAEOF
+)
+
+lose_tail() {
+  local lost="$1" k cid out
+  case "$lost" in ''|*[!0-9]*) die "--lost 는 건수를 숫자로 받는다: $lost" ;; esac
+  counter_keys | while IFS= read -r k; do
+    [ -n "$k" ] || continue
+    cid=${k#coupon:}; cid=${cid%:counter}
+    out=$(redis_send EVAL "$LOST_TAIL_LUA" 3 \
+            "coupon:$cid:seq" "coupon:$cid:pending" "coupon:$cid:counter" "$lost" | tr -d '\r')
+    log "쿠폰 $cid  counter 를 $lost 만큼 되돌리고 그만큼의 seq 와 pending 을 지웠다"
+    printf '%s' "$out" | grep -q 'counter-absent' && log "  counter 가 없다. 이미 유실된 상태다"
+  done
+  printf 'keys|lost-tail\n' >> "$STATE"
 }
 
 # DB 를 잠깐 막아 큐를 쌓은 뒤 지운다. $1 = 막을 초
@@ -226,13 +315,12 @@ drop_keys() {
 # 나머지 대수는 막힌 채로 둔다. 기여는 Redis 만 건드리므로 DB 가 막혀 있어도 올릴 수
 # 있고, 그 큐가 두꺼운 덕에 lagMillis 에 실제 표본이 쌓인다.
 backlog_then_drop() {
-  local secs="$1" port host lead keys remote
+  local secs="$1" port host lead remote
   case "$secs" in ''|*[!0-9]*) die "--backlog 는 초를 숫자로 받는다: $secs" ;; esac
   port=$(endpoint_port db | awk '{print $2}')
   host=$(endpoint_port cache | awk '{print $1}')
 
-  keys=$(expand_targets counter)
-  [ -n "$keys" ] || die "지울 counter 키가 없다. 이벤트가 열려 있는지 확인하라"
+  read_targets counter
 
   cut_link db
   log "${secs}초 동안 큐를 쌓는다"
@@ -244,7 +332,7 @@ backlog_then_drop() {
   remote=$(cat <<REMOTE
 while iptables -D OUTPUT -p tcp --dport $port -j DROP 2>/dev/null; do :; done
 while iptables -D FORWARD -p tcp --dport $port -j DROP 2>/dev/null; do :; done
-$(redis_script "$host" "DEL $keys")
+$(redis_script "$host" DEL "${TARGETS[@]}")
 REMOTE
 )
   run_ssm "$lead" "echo $(printf '%s' "$remote" | base64 | tr -d '\n') | base64 -d | bash"
@@ -282,8 +370,9 @@ restore_all() {
         # AWS 가 스스로 되돌린다. 되돌릴 것이 없고 기록만 지운다
         log "페일오버는 되돌릴 것이 없다  ($a)" ;;
       keys)
-        # 지운 키는 재건이 되살린다. 여기서 손으로 되돌리면 재건이 하려던 일을 뺏는다
-        log "지운 키는 되돌리지 않는다  ($a). 재건이 되살린다" ;;
+        # 손댄 키는 되돌리지 않는다. seq-loss 는 재건이 되살리고, lost-tail 은
+        # 되돌릴 수 있으면 애초에 시험이 아니다. 실제 페일오버도 안 되돌아간다
+        log "손댄 키는 되돌리지 않는다  ($a)" ;;
     esac
   done < "$STATE"
   rm -f "$STATE"
@@ -302,15 +391,16 @@ show_status() {
 
 # ---------------------------------------------------------------- 진입점
 
-HOLD=""; BACKLOG=""; ARGS=()
+HOLD=""; BACKLOG=""; LOST=""; ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --hold) HOLD="${2:-}"; shift 2 ;;
     --backlog) BACKLOG="${2:-}"; shift 2 ;;
+    --lost) LOST="${2:-}"; shift 2 ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
-[ ${#ARGS[@]} -ge 1 ] || die "시나리오를 주어라. app | cache | db | app+cache | seq-loss | cache-wipe | status | restore"
+[ ${#ARGS[@]} -ge 1 ] || die "시나리오를 주어라. app | cache | db | app+cache | lost-tail | seq-loss | cache-wipe | status | restore"
 
 case "${ARGS[0]}" in
   status)  show_status; exit 0 ;;
@@ -328,6 +418,8 @@ case "${ARGS[0]}" in
   cache-failover) failover_cache ;;
   db-failover)    failover_db ;;
   app+cache-failover) stop_one_app; failover_cache ;;
+  lost-tail) [ -z "$BACKLOG" ] || die "--backlog 는 seq-loss 에만 쓴다"
+             lose_tail "${LOST:-200}" ;;
   seq-loss)  if [ -n "$BACKLOG" ]; then backlog_then_drop "$BACKLOG"; else drop_keys counter; fi ;;
   cache-wipe) [ -z "$BACKLOG" ] || die "--backlog 는 seq-loss 에만 쓴다"
               drop_keys wipe ;;
