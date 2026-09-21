@@ -26,6 +26,20 @@
 
 **3번이 결정적이다.** 워크플로 파일을 고쳐 다른 브랜치에서 돌려도 STS 가 자격증명을 주지 않는다. 파일 수정으로 뚫리지 않는다.
 
+**재구축 중에는 병합하지 않는다.** `apply` 가 도는 동안 main 에 병합하면 배포가 권한 오류로 죽는다.
+
+```
+AccessDenied ... freshmarket-gha-deploy/GitHubActions is not authorized to perform:
+elasticloadbalancing:DescribeTargetGroups
+```
+
+**정책에 그 동작이 없어서가 아니다.** `iam_github.tf` 가 이미 준다. Terraform 이 역할을 먼저
+만들고 정책을 나중에 붙이는데, 그 사이에 배포가 역할을 맡아 호출한 것이다. 역할이 있으니
+assume 은 되고 정책이 없으니 호출만 거절된다. **로그만 보면 권한 구멍처럼 읽힌다.**
+
+2026-09-21 에 26초 차이로 이렇게 겹쳤다. 인프라가 다 올라온 뒤 `deploy.sh <SHA>` 로 다시
+배포하면 된다.
+
 ## 배치는 앱 뒤에 교체한다
 
 `deploy.sh` 10번 단계다. 배치는 ASG 밖이라 `desired` 로 다룰 수 없어 SSM 으로 서비스를 재시작한다.
