@@ -10,6 +10,7 @@
 #   ./loadtest-fault.sh db-failover     DB 를 실제로 페일오버시킨다 (reboot with failover)
 #   ./loadtest-fault.sh lost-tail   복제가 밀린 채 승격된 것을 흉내낸다 (가장 흔하다)
 #   ./loadtest-fault.sh seq-loss    순번 키(counter)를 지워 재건을 일으킨다
+#   ./loadtest-fault.sh app+seq-loss  한 대를 죽이고 순번 키를 지운다
 #   ./loadtest-fault.sh cache-wipe  순번 네 키를 전부 지운다 (캐시 전손)
 #   ./loadtest-fault.sh status      지금 무엇이 끊겨 있는지
 #   ./loadtest-fault.sh restore     무엇이 걸려 있든 되돌린다
@@ -435,7 +436,7 @@ while [ $# -gt 0 ]; do
     *) ARGS+=("$1"); shift ;;
   esac
 done
-[ ${#ARGS[@]} -ge 1 ] || die "시나리오를 주어라. app | cache | db | app+cache | lost-tail | seq-loss | cache-wipe | status | restore"
+[ ${#ARGS[@]} -ge 1 ] || die "시나리오를 주어라. app | cache | db | app+cache | lost-tail | seq-loss | app+seq-loss | cache-wipe | status | restore"
 
 case "${ARGS[0]}" in
   status)  show_status; exit 0 ;;
@@ -458,6 +459,8 @@ case "${ARGS[0]}" in
   seq-loss)  if [ -n "$BACKLOG" ]; then backlog_then_drop "$BACKLOG"; else drop_keys counter; fi ;;
   cache-wipe) [ -z "$BACKLOG" ] || die "--backlog 는 seq-loss 에만 쓴다"
               drop_keys wipe ;;
+  app+seq-loss) [ -z "$BACKLOG" ] || die "--backlog 는 seq-loss 에만 쓴다"
+                stop_one_app; drop_keys counter ;;
   *) die "모르는 시나리오: ${ARGS[0]}" ;;
 esac
 
