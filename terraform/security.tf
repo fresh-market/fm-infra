@@ -262,7 +262,8 @@ resource "aws_vpc_security_group_ingress_rule" "cache_from_mon" {
 
 /*
  * 아웃바운드는 전부 열어 둔다.
- * GHCR 이미지 pull, SSM Parameter Store 조회, 패키지 설치가 인터넷으로 나간다.
+ * ECR 이미지 pull, SSM Parameter Store 조회, 패키지 설치가 인터넷으로 나간다.
+ * ECR 은 같은 리전이지만 VPC 엔드포인트가 없어 지금은 IGW 로 나갔다 들어온다.
  * 프라이빗 서브넷의 RDS 와 캐시는 라우팅에 기본 경로가 없어 실제로는 나가지 못한다.
  */
 resource "aws_vpc_security_group_egress_rule" "all" {

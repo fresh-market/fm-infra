@@ -10,7 +10,7 @@
 #
 # 시크릿 검사를 여기서 하는 이유는 Terraform 이 db-password 하나만 보기 때문이다(rds.tf postcondition).
 # 나머지 일곱은 unset 이어도 apply 가 통과하고, 인스턴스가 뜬 뒤에야 드러난다.
-# GHCR 로그인 실패로 컨테이너가 안 뜨거나, Slack 알림이 조용히 안 가는 식이다.
+# ECR 로그인 실패로 컨테이너가 안 뜨거나, Slack 알림이 조용히 안 가는 식이다.
 
 set -euo pipefail
 
@@ -37,7 +37,7 @@ bootstrap 상태 파일이 없는데 버킷 tfstate-$PROJECT 은 이미 있다.
   cd bootstrap
   terraform import aws_s3_bucket.tfstate tfstate-$PROJECT
 
-시크릿 8개는 Terraform 이 관리하지 않으므로 import 하지 않는다.
+시크릿 11개는 Terraform 이 관리하지 않으므로 import 하지 않는다.
 아래 3단계가 없는 것만 다시 만든다.
 EOF
 )"
@@ -64,7 +64,6 @@ jwt-signing-key|JWT signing key. rotated by kid
 db-password|RDS master password
 db-exporter-password|mysqld_exporter password. same as master
 github-token|used by monitoring to clone observability config
-ghcr-token|used by instances to pull images from GHCR. needs read:packages
 slack-webhook-critical|Alertmanager critical channel
 slack-webhook-warning|Alertmanager warning channel
 slack-webhook-watchdog|Alertmanager watchdog channel

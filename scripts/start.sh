@@ -89,7 +89,7 @@ fi
 # 올릴 수 있는 버전이 있는지 먼저 본다.
 #
 # current-sha 가 bootstrap 이면 받을 이미지가 없다. 인프라를 내려둔 동안 main 에 머지하면
-# 이미지는 GHCR 에 올라가지만 deploy.sh 가 preflight 에서 멈춰 이 값을 못 채운다.
+# 이미지는 ECR 에 올라가지만 deploy.sh 가 preflight 에서 멈춰 이 값을 못 채운다.
 #
 # 그대로 desired 를 올리면 없는 태그를 받으려는 인스턴스가 교체를 반복한다.
 # 앱 버그처럼 보이지만 원인은 태그가 없는 것이고, healthy 대기 상한을 태우고서야 드러난다.

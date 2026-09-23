@@ -26,9 +26,9 @@ concurrency:
   group: deploy-prod
   cancel-in-progress: false
 
+# packages 는 GHCR 시절의 것이다. ECR 로 옮기면서 뺐다.
 permissions:
   contents: read
-  packages: write
   id-token: write
 
 jobs:
@@ -54,24 +54,25 @@ jobs:
       - name: 빌드
         run: ./gradlew bootJar --no-daemon
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # 태그는 커밋 SHA 다. latest 를 쓰지 않는다.
-      # 어느 인스턴스가 어느 버전인지 태그만 보고 알 수 있어야 롤백 판단이 선다.
-      - name: 이미지 push
-        run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/freshmarket:${{ github.sha }}
-          docker build -t "$IMAGE" .
-          docker push "$IMAGE"
-
+      # ECR 로그인에 필요해서 push 앞에 있다. GHCR 일 때는 배포 단계 앞에만 있으면 됐다.
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ap-northeast-2
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 태그는 커밋 SHA 다. latest 를 쓰지 않는다.
+      # 어느 인스턴스가 어느 버전인지 태그만 보고 알 수 있어야 롤백 판단이 선다.
+      #
+      # 저장소가 IMMUTABLE 이라 같은 SHA 로 다시 밀면 push 가 거부된다.
+      # 재실행으로 이미지가 바뀌는 일이 없어야 태그가 버전의 근거가 된다.
+      - name: 이미지 push
+        run: |
+          IMAGE=${{ steps.ecr.outputs.registry }}/freshmarket:${{ github.sha }}
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
 
       # 0번 사전 점검부터 10번 최종 확인까지 스크립트가 수행한다.
       - name: 롤링 배포

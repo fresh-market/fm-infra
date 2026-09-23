@@ -59,7 +59,7 @@ instance_ids() {
 log "0. 사전 점검"
 "$(dirname "$0")/preflight.sh" deploy
 
-# 1. 이미지는 워크플로가 이미 GHCR 에 올렸다. 여기서는 존재만 전제한다.
+# 1. 이미지는 워크플로가 이미 ECR 에 올렸다. 여기서는 존재만 전제한다.
 log "1. 이미지 태그 $SHA"
 
 # 2. SSM 을 먼저 갱신한다.

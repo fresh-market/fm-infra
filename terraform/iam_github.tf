@@ -158,6 +158,38 @@ data "aws_iam_policy_document" "deploy" {
     resources = ["*"]
   }
 
+  /*
+   * 이미지를 ECR 에 올린다. 전에는 GHCR 이라 이 권한이 필요 없었다.
+   *
+   * GetAuthorizationToken 만 리소스를 못 좁힌다. 계정 단위 호출이라 AWS 가 저장소 ARN 을
+   * 안 받는다. 실제로 어디에 올릴 수 있는지는 아래 statement 가 정한다.
+   */
+  statement {
+    sid       = "EcrAuth"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  /*
+   * 지우는 권한은 주지 않는다. 오래된 이미지 정리는 수명주기 정책이 한다 (ecr.tf).
+   * 저장소가 IMMUTABLE 이라 PutImage 가 기존 태그를 덮어쓰지도 못한다.
+   */
+  statement {
+    sid    = "PushImage"
+    effect = "Allow"
+
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage",
+    ]
+
+    resources = [aws_ecr_repository.app.arn]
+  }
+
   statement {
     sid    = "ObserveOnly"
     effect = "Allow"

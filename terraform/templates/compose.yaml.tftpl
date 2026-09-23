@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/${github_org}/${project}:$${GIT_SHA}
+    image: ${app_image}:$${GIT_SHA}
     container_name: ${project}
     # always 가 아니다. 운영자가 멈춘 것을 되살리면 장애 주입 시험이 성립하지 않는다.
     restart: unless-stopped

@@ -33,9 +33,9 @@ locals {
 
   # 최초 부팅과 재배포가 같은 코드를 쓴다
   refresh_env = templatefile("${path.module}/templates/refresh-env.sh.tftpl", {
-    project    = var.project
-    region     = var.region
-    github_org = var.github_org
+    project  = var.project
+    region   = var.region
+    registry = local.ecr_registry
   })
 
   # 모니터링도 같은 이유로 갱신 경로가 필요하다. 다만 읽는 값과 쓰는 자리가 달라 별도다
@@ -78,9 +78,20 @@ locals {
     refresh_env      = local.refresh_monitoring_env
   })
 
+  /*
+   * 이미지 주소다. aws_ecr_repository.app.repository_url 을 쓰지 않는다.
+   *
+   * 그 속성은 apply 전까지 모르는 값인데 templatefile() 은 plan 시점에 값을 요구한다.
+   * 저장소를 처음 만드는 plan 이 그 자리에서 막힌다.
+   *
+   * 주소 형식은 AWS 가 정한 것이라 계정과 리전과 이름만 있으면 결정된다. 셋 다 알려진 값이다.
+   */
+  ecr_registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.region}.amazonaws.com"
+  app_image    = "${local.ecr_registry}/${var.project}"
+
   compose_args = {
     project     = var.project
-    github_org  = var.github_org
+    app_image   = local.app_image
     db_name     = var.db_name
     db_username = var.db_username
   }

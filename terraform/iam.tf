@@ -87,7 +87,7 @@ data "aws_iam_policy_document" "read_params" {
  *
  * 전에는 이 역할도 /project/* 를 통째로 읽었고, 좁히지 않는 근거를 "어차피 jwt-signing-key 를
  * 줘야 하니 나머지를 막아 버는 것이 크지 않다" 로 적어 두었다. 그 논리는 db-password 에만 맞다.
- * 그것은 SG 가 RDS 3306 을 막아 못 쓰지만, github-token 과 ghcr-token 과 kakao-admin-key 는
+ * 그것은 SG 가 RDS 3306 을 막아 못 쓰지만, github-token 과 kakao-admin-key 는
  * 인터넷만 있으면 쓰이므로 SG 가 아무것도 막지 못한다.
  *
  * 부하 생성기는 설계상 2만 명을 사칭하는 기계다. 거기에 조직 레포 쓰기 권한과 카카오 관리 키를
@@ -133,6 +133,42 @@ resource "aws_iam_role_policy" "read_params" {
   name   = "read-params"
   role   = aws_iam_role.instance[each.key].id
   policy = each.value
+}
+
+/*
+ * 앱 이미지를 ECR 에서 받는다. GHCR 일 때는 SSM 에 둔 토큰으로 docker login 을 했는데,
+ * 여기서는 인스턴스 프로파일이 곧 권한이라 호스트에 장기 자격증명이 남지 않는다.
+ *
+ * GetAuthorizationToken 만 리소스를 못 좁힌다. 계정 단위로 토큰을 발급하는 호출이라
+ * AWS 가 저장소 ARN 을 안 받는다. 실제로 무엇을 받을 수 있는지는 아래 둘이 정한다.
+ *
+ * 배치도 같은 이미지를 쓴다. 프로파일만 달리 띄우므로 pull 대상이 같다.
+ * 모니터링과 부하 생성기는 공개 이미지만 쓰므로 주지 않는다.
+ */
+data "aws_iam_policy_document" "pull_image" {
+  statement {
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = [aws_ecr_repository.app.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "pull_image" {
+  for_each = toset(["app", "batch"])
+
+  name   = "pull-image"
+  role   = aws_iam_role.instance[each.value].id
+  policy = data.aws_iam_policy_document.pull_image.json
 }
 
 # presigned URL 발급과 이미지 삭제에 쓴다. 버킷 전체를 나열할 이유는 없다.

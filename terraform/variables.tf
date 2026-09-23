@@ -302,7 +302,7 @@ variable "db_username" {
 }
 
 variable "github_org" {
-  description = "GitHub 조직. OIDC 신뢰 조건과 GHCR 이미지 경로에 쓴다"
+  description = "GitHub 조직. OIDC 신뢰 조건과 저장소 clone 경로에 쓴다"
   type        = string
   default     = "fresh-market"
 }
