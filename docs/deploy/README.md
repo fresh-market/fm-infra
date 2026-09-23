@@ -395,7 +395,14 @@ k6 뿐 아니라 JVM, HikariCP, MySQL, Redis, 호스트 지표를 같은 시간�
 데이터로 남기면 destroy 해도 남고, 대시보드 JSON 이 Git 에 있으므로 같은 그림을 언제든
 다시 만들 수 있다. **Prometheus 보존이 15일이라 그 전에 내려야 한다.**
 
-화면으로 볼 때는 그냥 https://freshmenmarket.duckdns.org 에서 보고 필요한 것을 캡처한다.
+화면으로 볼 때는 SSM 포트 포워딩으로 터널을 열고 `localhost:3000` 에서 캡처한다.
+모니터링이 사설 서브넷이라 웹 주소로는 못 본다 (2026-09-23).
+
+```
+aws ssm start-session --target <monitoring-id> \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["3000"],"localPortNumber":["3000"]}'
+```
 `loadtest-runs/` 는 gitignore 대상이다. 보관할 회차만 골라 문서에 붙인다.
 
 **시드 SQL 은 자동으로 안 들어간다.** DB 에 쓰는 동작이라 부팅 때 돌면 위험해서 뺐다.
