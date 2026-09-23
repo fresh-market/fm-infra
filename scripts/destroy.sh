@@ -12,6 +12,7 @@
 #   1. lifecycle prevent_destroy   Terraform 이 plan 단계에서 거부한다
 #   2. deletion_protection         AWS 가 API 호출을 거부한다. 끄려면 apply 를 먼저 해야 한다
 #   3. skip_final_snapshot=false   RDS 가 최종 스냅샷 이름을 요구한다
+#   4. 비어 있지 않은 저장소       S3 와 ECR 이 내용물이 있으면 삭제를 거부한다
 #
 # 그래서 가드를 걷어내고 apply 를 한 번 돌린 뒤에야 destroy 가 된다.
 # 걷어낸 가드는 마지막에 되돌린다. 방어가 코드에 살아 있어야 다음 재구축이 안전하다.
@@ -33,7 +34,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TF="$ROOT/terraform"
 
 # 가드가 박혀 있는 파일들. 마지막에 이 목록을 그대로 되돌린다.
-GUARDED=(alb.tf dns.tf instances.tf rds.tf storage.tf)
+GUARDED=(alb.tf dns.tf ecr.tf instances.tf rds.tf storage.tf)
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -70,6 +71,12 @@ sed -i '' 's/^\( *\)deletion_protection\( *\)= true$/\1deletion_protection\2= fa
 sed -i '' 's/^\( *\)skip_final_snapshot\( *\)= false$/\1skip_final_snapshot\2= true/' rds.tf
 # S3 는 비어 있지 않으면 삭제가 거부된다.
 sed -i '' 's|^resource "aws_s3_bucket" "media" {$|resource "aws_s3_bucket" "media" {\n  force_destroy = true|' storage.tf
+#
+# ECR 도 같다. 이미지가 하나라도 있으면 RepositoryNotEmptyException 으로 거부한다.
+# 2026-09-24 에 여기서 걸려 VPC 까지 다 지운 뒤 저장소만 남았다.
+#
+# 이미지는 커밋 SHA 로 언제든 다시 빌드할 수 있어 S3 미디어와 달리 잃을 것이 없다.
+sed -i '' 's|^resource "aws_ecr_repository" "app" {$|resource "aws_ecr_repository" "app" {\n  force_delete = true|' ecr.tf
 
 terraform fmt . > /dev/null
 terraform validate > /dev/null || die "가드 해제 후 validate 실패"
