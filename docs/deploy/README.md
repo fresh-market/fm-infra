@@ -153,6 +153,21 @@ cp docs/deploy/backend-deploy-workflow.yml ../backend/.github/workflows/deploy.y
 
 CDN 도메인과 ALB 주소는 재구축마다 바뀌지만 **손댈 것이 없다.** 앞의 것은 `apply.sh` 5단계가 SSM `cdn-domain` 에 실어 앱 컨테이너까지 보내고, 뒤의 것은 `deploy.sh` 가 스모크 직전에 직접 조회한다.
 
+### AMI 는 자동으로 안 올라간다
+
+`aws_instance.monitoring` 과 `aws_instance.batch` 에 `ignore_changes = [ami]` 가 걸려 있다.
+
+**걸지 않으면 apply 가 통째로 막힌다.** `data.aws_ami` 가 `most_recent` 라 Canonical 이 새
+Ubuntu 를 올리면 두 인스턴스가 교체 대상이 되는데, 모니터링에는 `prevent_destroy` 가 있어
+Terraform 이 거부한다. 그러면 **무관한 변경 하나를 넣으려 해도 못 넣는다.** 2026-09-23 에
+부하 생성기를 내리려다 이것에 막혔고 `-target` 으로 우회해야 했다.
+
+대가는 **커널이 자동으로 안 올라간다**는 것이다. 보안 패치가 필요하면 사람이 판단해서
+교체한다. 모니터링은 EBS 에 관측 데이터가 있으니 먼저 챙긴다.
+
+ASG(앱, 선착순)는 해당 없다. 시작 템플릿은 제자리 갱신되고 **다음에 뜨는 인스턴스가 새 AMI 를
+받는다.** 그래서 롤링 배포를 한 번 돌리면 자연히 최신이 된다.
+
 ### 재구축마다 남는 수동 작업
 
 **SNS 이메일 구독 확인 하나뿐이다.** 구독 리소스가 파괴되고 다시 만들어지므로 확인 메일이 다시 오고, 링크를 눌러야 CloudWatch 알람이 갈 곳이 생긴다. AWS 가 사람 확인을 요구해 자동화할 수 없다.
@@ -161,7 +176,17 @@ CDN 도메인과 ALB 주소는 재구축마다 바뀌지만 **손댈 것이 없�
 
 ### apply 가 중간에 끊겼다면
 
-**`apply.sh` 는 한 번만 돌리면 된다.** 5단계가 `terraform apply` 바로 뒤에서 엔드포인트를 SSM 에 싣기 때문이다. 두 번 돌려야 하는 구조가 아니다.
+**`apply.sh` 는 한 번만 돌리면 된다.**
+
+**엔드포인트는 이제 Terraform 이 넣는다** (2026-09-23). `db-endpoint`, `cache-endpoint`,
+`cdn-domain` 의 `value` 가 각각 RDS, 캐시, CloudFront 의 실제 속성이다. 한때 `"unset"` 으로
+태어나 `apply.sh` 5단계가 채웠는데, **그 스크립트를 건너뛰고 `terraform apply` 만 돌리면
+`unset` 인 채로 앱이 떴다.** Flyway 가 `UnknownHostException: unset` 으로 죽고 원인이
+앱처럼 보인다. 실제로 그렇게 헤맸다.
+
+**5단계는 그대로 남는다.** RDS 복원은 새 인스턴스를 만들어 엔드포인트가 바뀌는데(`INF-26`),
+`ignore_changes = [value]` 때문에 Terraform 이 그것을 못 따라간다. 그때 채우는 것이 5단계다.
+평소에는 값이 같아 "그대로" 로 지나간다.
 
 **그런데 도중에 죽으면 세 가지가 한꺼번에 남는다.** 2026-09-20 에 실제로 겪었다. 증상이 서로 달라 보여도 뿌리가 하나다.
 
@@ -169,7 +194,7 @@ CDN 도메인과 ALB 주소는 재구축마다 바뀌지만 **손댈 것이 없�
 |---|---|
 | 다음 `apply` 가 `Error acquiring the state lock` 으로 멈춘다 | terraform 이 락을 못 풀고 죽었다 |
 | RDS 나 캐시가 `AlreadyExists` 로 실패한다 | AWS 에는 만들어졌는데 상태 파일에 안 들어갔다 |
-| 앱이 `UnknownHostException: unset` 으로 재시작을 반복한다 | 5단계까지 못 가서 `db-endpoint` 가 `unset` 그대로다 |
+| 앱이 `UnknownHostException: unset` 으로 재시작을 반복한다 | **2026-09-23 이후로는 안 난다.** Terraform 이 값을 넣는다 |
 
 순서대로 푼다. **앞의 둘을 풀어야 `apply` 가 5단계까지 간다.**
 
@@ -223,7 +248,7 @@ done
 
 ```bash
 ./scripts/stop.sh     # ASG desired 0 -> 모니터링/배치 중지 -> RDS 중지
-./scripts/start.sh    # RDS 와 인스턴스 시작 -> 엔드포인트 갱신 -> desired 1 -> healthy 대기
+./scripts/start.sh    # RDS 와 인스턴스 시작 -> 엔드포인트 갱신 -> min 2 회복 -> healthy 대기
 ```
 
 ## 부하 생성기
