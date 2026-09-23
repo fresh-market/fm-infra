@@ -9,9 +9,20 @@
  */
 
 resource "aws_instance" "monitoring" {
-  ami                    = data.aws_ami.ubuntu_arm.id
-  instance_type          = var.instance_types["monitoring"]
-  subnet_id              = aws_subnet.public["a"].id
+  ami           = data.aws_ami.ubuntu_arm.id
+  instance_type = var.instance_types["monitoring"]
+
+  /*
+   * 자리가 DuckDNS 사용 여부로 갈린다.
+   *
+   * Caddy 가 Let's Encrypt 에서 인증서를 받으려면 80 으로 들어오는 검증 요청을 받아야 한다
+   * (HTTP-01). 사설 서브넷에는 들어올 길이 없어 발급이 반복 실패하고, Let's Encrypt 는
+   * 실패에도 한도가 있어 금방 막힌다. 그래서 둘을 함께 켤 수 없다.
+   *
+   * 도메인을 사면 ALB + OIDC 경로(has_grafana)가 열리고, 그때는 사설이어도 볼 수 있다.
+   * 그 전까지 사설 상태에서 보는 방법은 SSM 포트 포워딩이다 (observability/README.md).
+   */
+  subnet_id              = local.has_duckdns ? aws_subnet.public["a"].id : aws_subnet.private["a"].id
   vpc_security_group_ids = [aws_security_group.mon.id]
   iam_instance_profile   = aws_iam_instance_profile.instance["monitoring"].name
 
@@ -57,7 +68,7 @@ resource "aws_instance" "monitoring" {
 resource "aws_instance" "batch" {
   ami                    = data.aws_ami.ubuntu_x86.id
   instance_type          = var.instance_types["batch"]
-  subnet_id              = aws_subnet.public["a"].id
+  subnet_id              = aws_subnet.private["a"].id
   vpc_security_group_ids = [aws_security_group.batch.id]
   iam_instance_profile   = aws_iam_instance_profile.instance["batch"].name
   user_data_base64       = base64encode(local.batch_user_data)

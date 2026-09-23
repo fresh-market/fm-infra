@@ -198,7 +198,7 @@ resource "aws_launch_template" "app" {
  */
 resource "aws_autoscaling_group" "app" {
   name                = "${var.project}-app"
-  vpc_zone_identifier = [for s in aws_subnet.public : s.id]
+  vpc_zone_identifier = [for s in aws_subnet.private : s.id]
 
   min_size         = 1
   desired_capacity = 1
@@ -322,7 +322,7 @@ resource "aws_autoscaling_group" "coupon" {
   count = var.coupon_dedicated_enabled ? 1 : 0
 
   name                = "${var.project}-coupon"
-  vpc_zone_identifier = [for s in aws_subnet.public : s.id]
+  vpc_zone_identifier = [for s in aws_subnet.private : s.id]
 
   min_size         = 0
   desired_capacity = 0
