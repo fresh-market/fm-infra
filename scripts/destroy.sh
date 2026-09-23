@@ -4,6 +4,7 @@
 #
 #   ./destroy.sh          계정 ID 를 물어본다. 평소에는 이것을 쓴다
 #   ./destroy.sh --yes    묻지 않는다. CI 처럼 터미널이 없을 때만 쓴다
+#   --force-apply         상태가 거의 비었어도 3단계 apply 를 강행한다. 재생성을 감수한다는 뜻이다
 #
 # 묻는 절차를 없애지 않는다. 되돌릴 수 없는 작업이고, RDS 데이터와 S3 미디어는
 # 스냅샷도 남기지 않고 사라진다. 인자 없이 실행하는 것이 기본이다.
@@ -81,8 +82,44 @@ sed -i '' 's|^resource "aws_ecr_repository" "app" {$|resource "aws_ecr_repositor
 terraform fmt . > /dev/null
 terraform validate > /dev/null || die "가드 해제 후 validate 실패"
 
+#
 # 3. AWS 쪽 삭제 보호를 실제로 끈다. 이 단계 없이 destroy 하면 RDS 와 ALB 에서 거부당한다.
+#
+#    그 전에 상태에 무엇이 남았는지 센다. 이 apply 는 "가드를 반영한다" 가 아니라
+#    "코드와 상태를 맞춘다" 이므로, 상태가 비어 있으면 **전부를 새로 만든다.**
+#
+#    2026-09-24 에 그렇게 당했다. 앞선 destroy 가 ECR 하나만 남기고 끝났고, 다시 돌리자
+#    이 단계가 121개를 재생성하기 시작했다. 중간에 끊으니 AWS 에는 만들어졌는데 상태에는
+#    없는 것들이 남아, 뒤이은 destroy 가 그것을 못 보고 지나갔다. RDS 와 캐시와 CloudFront 가
+#    고아로 남아 계속 과금됐고 CLI 로 직접 지워야 했다.
+#
+#    남은 것이 적으면 apply 없이 destroy 만 돌리는 편이 빠르고 안전하다.
+#
 log "3. apply (삭제 보호 해제)"
+
+# 데이터 소스는 리소스가 아니다. 실제로 지울 것만 센다
+remaining=$(terraform state list 2>/dev/null | grep -cv '^data\.' || true)
+log "   상태에 남은 리소스 $remaining 개"
+
+if [ "$remaining" -lt 10 ]; then
+  printf '\n' >&2
+  printf '상태에 리소스가 %s 개뿐이다. 이 단계의 apply 가 인프라를 통째로 다시 만든다.\n' "$remaining" >&2
+  printf '\n' >&2
+  printf '앞선 destroy 가 대부분을 지운 뒤라면 apply 를 건너뛰고 destroy 만 돌려라.\n' >&2
+  printf '  cd terraform && terraform destroy -auto-approve\n' >&2
+  printf '\n' >&2
+  printf '가드는 이미 걷어져 있으므로 그대로 destroy 가 된다. 끝나면 되돌려라.\n' >&2
+  printf '  git checkout -- %s\n' "${GUARDED[*]/#/terraform/}" >&2
+  printf '\n' >&2
+  printf '정말로 전부 새로 만들었다가 지우려면 --force-apply 를 붙여라.\n' >&2
+  printf '  %s --yes --force-apply\n' "$0" >&2
+  printf '\n' >&2
+  case " $* " in
+    *" --force-apply "*) log "   --force-apply 로 강행한다" ;;
+    *) die "중단한다" ;;
+  esac
+fi
+
 terraform apply -auto-approve -input=false
 
 # 4. 파괴.
