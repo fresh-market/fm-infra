@@ -13,7 +13,10 @@ set -euo pipefail
 PROJECT="${PROJECT:-freshmarket}"
 REGION="${AWS_REGION:-ap-northeast-2}"
 # 오토스케일링이 여기서부터 트래픽에 따라 올린다.
-DESIRED="${DESIRED:-1}"
+#
+# 기본이 2 인 것은 Terraform 의 min_size 와 맞추기 위해서다 (2026-09-23 하한 상향).
+# 1 로 두면 stop/start 한 번에 이중화가 조용히 풀린다. AZ 하나를 잃으면 서비스가 멈춘다.
+DESIRED="${DESIRED:-2}"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 
@@ -107,10 +110,13 @@ if [ "$sha" = "bootstrap" ] || [ "$sha" = "unset" ]; then
 fi
 
 # stop.sh 가 min 을 0 으로 내려 두었다. 함께 되돌리지 않으면 정책이 0 까지 스케일 인한다.
-log "3. ASG min 1 / desired $DESIRED (이미지 $sha)"
+#
+# min 을 2 로 되돌린다. Terraform 의 min_size 와 같은 값이어야 한다. 여기가 1 이면
+# stop/start 를 한 번 거칠 때마다 이중화가 풀리고, terraform apply 를 돌릴 때까지 안 드러난다.
+log "3. ASG min 2 / desired $DESIRED (이미지 $sha)"
 aws autoscaling update-auto-scaling-group \
   --auto-scaling-group-name "$PROJECT-app" \
-  --min-size 1 --desired-capacity "$DESIRED" --region "$REGION"
+  --min-size 2 --desired-capacity "$DESIRED" --region "$REGION"
 
 # 4. readiness 확인. 배포 절차의 사전 점검과 같은 것을 본다.
 log "4. 대상 그룹 healthy 대기 (상한 600초)"
