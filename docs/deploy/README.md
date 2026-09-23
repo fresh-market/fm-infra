@@ -109,7 +109,7 @@ terraform -chdir=terraform import <주소> <실제ID>           # AWS 에는 있
 아직 값이 없는 시크릿이 있다.
 
   /freshmarket/db-password
-  /freshmarket/ghcr-token
+  /freshmarket/jwt-signing-key
   ...
 ```
 
@@ -121,7 +121,6 @@ terraform -chdir=terraform import <주소> <실제ID>           # AWS 에는 있
 | `db-exporter-password` | **`db-password` 와 같은 값.** 아래를 보라 |
 | `jwt-signing-key` | `openssl rand -base64 48` |
 | `github-token` | PAT. `fm-infra` **Contents Read-only.** 모니터링이 클론만 한다 |
-| `ghcr-token` | classic PAT, **`read:packages`.** 인스턴스가 이미지를 받는다 |
 | `slack-webhook-*` | Incoming Webhook 3개. 채널이 달라야 의미가 있다 |
 
 **`mysqld_exporter` 는 마스터 계정으로 붙는다.** 그래서 `db-exporter-password` 는 `db-password` 와 같아야 한다.
@@ -135,7 +134,9 @@ CREATE USER 'exporter'@'%' IDENTIFIED BY '<db-exporter-password>';
 GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
 ```
 
-**`db-password` 만 Terraform 이 따로 막는다**(`rds.tf` 의 postcondition). 나머지는 `unset` 이어도 apply 가 통과하고 인스턴스가 뜬 뒤에야 드러난다. GHCR 로그인 실패로 컨테이너가 안 뜨거나, `JWT_SECRET` 이 없어 앱이 기동을 못 하거나, Slack 알림이 조용히 안 가는 식이다. 그래서 스크립트가 전부를 한 번에 본다.
+**`db-password` 만 Terraform 이 따로 막는다**(`rds.tf` 의 postcondition). 나머지는 `unset` 이어도 apply 가 통과하고 인스턴스가 뜬 뒤에야 드러난다. `JWT_SECRET` 이 없어 앱이 기동을 못 하거나, Slack 알림이 조용히 안 가는 식이다. 그래서 스크립트가 전부를 한 번에 본다.
+
+**이미지 레지스트리 자격증명은 목록에 없다.** ECR 은 인스턴스 프로파일이 곧 pull 권한이라 넣을 것이 없다. 2026-09-23 이전에는 `ghcr-token` 이 여기 있었다.
 
 **다른 기계에서 클론했다면** `bootstrap/terraform.tfstate` 가 없다. gitignore 되어 따라오지 않는다. 그대로 돌리면 이미 있는 버킷을 다시 만들려다 죽으므로, 스크립트가 그 상황을 먼저 감지해 `terraform import` 명령을 알려 준다.
 
@@ -489,7 +490,7 @@ SQL 은 `raw.githubusercontent.com` 에서 바로 받는다. 레포가 public �
 부팅에 수 분이 걸린다. 확장이 끝나기 전에 이벤트가 끝난다. 정책은 길게 이어지는 부하의 안전망이다.
 
 **재개했는데 앱이 안 뜨는 경우가 하나 있다.** 인프라를 내려둔 동안 `main` 에 머지하면
-이미지는 GHCR 에 올라가지만 `deploy.sh` 가 사전 점검에서 멈춰 `current-sha` 를 못 채운다.
+이미지는 ECR 에 올라가지만 `deploy.sh` 가 사전 점검에서 멈춰 `current-sha` 를 못 채운다.
 
 `start.sh` 가 그 상태를 알아보고 ASG 를 올리지 않는다. RDS 와 모니터링과 배치까지만 올리고
 배포를 돌리라고 안내한 뒤 끝난다. 그대로 올렸다면 없는 태그를 받으려는 인스턴스가

@@ -77,7 +77,7 @@ ALB (2 AZ)
 ```yaml
 services:
   app:
-    image: ghcr.io/${GITHUB_OWNER}/${APP_NAME}:${GIT_SHA}
+    image: ${AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_NAME}:${GIT_SHA}
     restart: unless-stopped
     stop_grace_period: 45s
     healthcheck:
