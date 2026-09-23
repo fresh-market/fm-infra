@@ -78,43 +78,58 @@ resource "aws_route_table" "public" {
 
 /*
  * NAT 는 퍼블릭 서브넷에 있어야 한다. 자기 자신이 IGW 로 나갈 수 있어야 남을 내보낸다.
+ *
+ * AZ 당 하나를 둔다. 한 대로 두면 그 AZ 가 죽을 때 양쪽 사설 서브넷이 다 못 나가고,
+ * 카카오 로그인과 이미지 pull 이 함께 멈춘다. 90초짜리 이벤트 중에는 복구 수단이 없다.
+ * 한 대였을 때 이것이 단일 장애점으로 표에 올라가 있었다 (2026-09-23 이중화).
+ *
+ * 대가는 두 배 요금이다. NAT 는 시간당 과금이라 켜 두면 계속 나간다.
  */
 resource "aws_eip" "nat" {
+  for_each = var.public_subnet_cidrs
+
   domain = "vpc"
 
   tags = {
-    Name = "${var.project}-nat"
+    Name = "${var.project}-nat-${each.key}"
   }
 }
 
 resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public["a"].id
+  for_each = var.public_subnet_cidrs
+
+  allocation_id = aws_eip.nat[each.key].id
+  subnet_id     = aws_subnet.public[each.key].id
 
   # IGW 가 먼저 붙어 있어야 만들어진다. 암묵적 의존이 안 잡혀 명시한다.
   depends_on = [aws_internet_gateway.main]
 
   tags = {
-    Name = "${var.project}-nat"
+    Name = "${var.project}-nat-${each.key}"
   }
 }
 
 /*
- * 사설 서브넷의 나갈 길이다.
+ * 사설 서브넷의 나갈 길이다. AZ 마다 따로 둔다.
  *
- * RDS 와 캐시는 나갈 일이 없지만 같은 라우팅 테이블을 쓴다. 나갈 길이 있어도 보안 그룹이
- * 아웃바운드를 막지 않는 한 쓰지 않을 뿐이다. 서브넷을 더 쪼개 얻는 것보다 단순함이 낫다.
+ * 하나로 공유하면 NAT 를 둘로 늘려도 의미가 없다. 그 테이블이 가리키는 NAT 의 AZ 가 죽으면
+ * 반대편 AZ 의 인스턴스도 같이 못 나간다. AZ 별로 자기 NAT 를 보게 해야 이중화가 성립한다.
+ *
+ * RDS 와 캐시도 이 테이블을 쓴다. 나갈 일이 없지만 나갈 길이 있어도 보안 그룹이 막지 않는 한
+ * 쓰지 않을 뿐이다. 서브넷을 더 쪼개 얻는 것보다 단순함이 낫다.
  */
 resource "aws_route_table" "private" {
+  for_each = var.private_subnet_cidrs
+
   vpc_id = aws_vpc.main.id
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
+    nat_gateway_id = aws_nat_gateway.main[each.key].id
   }
 
   tags = {
-    Name = "${var.project}-private"
+    Name = "${var.project}-private-${each.key}"
   }
 }
 
@@ -128,7 +143,7 @@ resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.${var.region}.s3"
   vpc_endpoint_type = "Gateway"
-  route_table_ids   = [aws_route_table.private.id]
+  route_table_ids   = [for rt in aws_route_table.private : rt.id]
 
   tags = {
     Name = "${var.project}-s3"
@@ -147,5 +162,5 @@ resource "aws_route_table_association" "private" {
   for_each = var.private_subnet_cidrs
 
   subnet_id      = aws_subnet.private[each.key].id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[each.key].id
 }

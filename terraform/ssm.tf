@@ -33,8 +33,16 @@ resource "aws_ssm_parameter" "db_endpoint" {
   name        = "${local.ssm_prefix}/db-endpoint"
   description = "DB endpoint for app and batch"
   type        = "String"
-  value       = "unset"
+  value       = aws_db_instance.main.address
 
+  /*
+   * 값을 Terraform 이 직접 넣는다. 한때 "unset" 으로 태어나 apply.sh 5단계가 채웠는데,
+   * 그 스크립트를 건너뛰고 terraform apply 만 돌리면 unset 인 채로 앱이 떴다.
+   * Flyway 가 UnknownHostException: unset 으로 죽고, 원인이 앱처럼 보인다 (2026-09-23).
+   *
+   * ignore_changes 는 그대로 둔다. RDS 복원은 새 인스턴스를 만들어 엔드포인트가 바뀌는데
+   * (INF-26) 그때는 복원 스크립트가 CLI 로 갱신하고, Terraform 이 그것을 되돌리면 안 된다.
+   */
   lifecycle {
     ignore_changes = [value]
   }
@@ -49,7 +57,7 @@ resource "aws_ssm_parameter" "cdn_domain" {
   name        = "${local.ssm_prefix}/cdn-domain"
   description = "CloudFront domain for image URLs"
   type        = "String"
-  value       = "unset"
+  value       = aws_cloudfront_distribution.media.domain_name
 
   lifecycle {
     ignore_changes = [value]
@@ -64,7 +72,7 @@ resource "aws_ssm_parameter" "cache_endpoint" {
   name        = "${local.ssm_prefix}/cache-endpoint"
   description = "cache endpoint for app and monitoring"
   type        = "String"
-  value       = "unset"
+  value       = aws_elasticache_replication_group.main.primary_endpoint_address
 
   lifecycle {
     ignore_changes = [value]

@@ -55,6 +55,18 @@ resource "aws_instance" "monitoring" {
   lifecycle {
     # EBS 에 관측 데이터가 있다. 태우면 되돌릴 수 없다.
     prevent_destroy = true
+
+    /*
+     * AMI 가 바뀌어도 이 인스턴스를 갈아엎지 않는다.
+     *
+     * data.aws_ami 가 most_recent 라 Canonical 이 새 Ubuntu 를 올리면 교체 대상이 되는데,
+     * 위 prevent_destroy 가 그것을 거부해 **모든 apply 가 그 자리에서 죽는다.**
+     * 무관한 변경 하나를 넣으려 해도 못 넣게 된다. 실제로 그렇게 막혔다 (2026-09-23).
+     *
+     * 이 인스턴스는 ASG 밖이라 AMI 갱신이 자동으로 필요하지 않다. 커널을 올려야 하면
+     * 사람이 판단해서 replace 한다. 그때는 관측 데이터를 먼저 챙긴다.
+     */
+    ignore_changes = [ami]
   }
 }
 
@@ -96,6 +108,19 @@ resource "aws_instance" "batch" {
   tags = {
     Name = "${var.project}-batch"
     Role = "batch"
+  }
+
+  /*
+   * 모니터링과 같은 이유로 AMI 변경을 무시한다.
+   *
+   * 여기는 prevent_destroy 가 없어 apply 가 막히지는 않지만, Canonical 이 새 AMI 를 올릴
+   * 때마다 무관한 apply 가 배치를 갈아엎는다. 돌고 있던 작업이 그때 끊긴다.
+   *
+   * 위 user_data_replace_on_change 는 그대로 둔다. 그쪽은 우리가 템플릿을 고쳤을 때만
+   * 걸리므로 의도한 교체다.
+   */
+  lifecycle {
+    ignore_changes = [ami]
   }
 }
 

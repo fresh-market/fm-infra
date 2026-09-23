@@ -182,10 +182,17 @@ resource "aws_launch_template" "app" {
 }
 
 /*
- * 트래픽에 따라 1~3 대로 움직인다. 고정 이중화가 아니라 오토스케일링이다.
+ * 트래픽에 따라 2~3 대로 움직인다.
  *
- * min_size 가 1 이다. 0 이면 트래픽이 없을 때 정책이 스케일 인으로 0 까지 내려
- * 서비스가 사라진다. 세션을 끝낼 때는 stop.sh 가 min 을 0 으로 내린 뒤 desired 를 0 으로 준다.
+ * min_size 가 2 다. 1 이었을 때는 한산한 구간에서 앱이 단일 장애점이었다. ASG 가 죽은
+ * 인스턴스를 다시 만들지만 기동에 4~6분이 걸리고 그동안 서비스가 멈춘다. 자가 치유는
+ * 이중화가 아니다. 두 대가 서로 다른 AZ 에 떠 있어야 AZ 하나를 잃어도 버틴다 (2026-09-23).
+ *
+ * 0 으로 두지 않는 이유는 그대로다. 정책이 스케일 인으로 0 까지 내려 서비스가 사라진다.
+ * 세션을 끝낼 때는 stop.sh 가 min 을 0 으로 내린 뒤 desired 를 0 으로 준다.
+ *
+ * desired_capacity 를 고쳐도 ignore_changes 때문에 이미 있는 ASG 에는 안 먹는다.
+ * 실제로 대수를 끌어올리는 것은 min_size 다.
  *
  * max_size 3 이 확장 상한이자 배포 여유를 겸한다. deploy.sh 가 desired + 1 로 신규를 띄우므로,
  * 3 대까지 올라간 상태에서는 배포가 막힌다. 드문 경우이고 스케일 인을 기다리면 풀린다.
@@ -200,8 +207,8 @@ resource "aws_autoscaling_group" "app" {
   name                = "${var.project}-app"
   vpc_zone_identifier = [for s in aws_subnet.private : s.id]
 
-  min_size         = 1
-  desired_capacity = 1
+  min_size         = 2
+  desired_capacity = 2
   max_size         = 3
 
   # ELB 헬스체크를 본다. 프로세스는 살아 있는데 응답을 못 하는 경우를 잡는다.
