@@ -85,7 +85,12 @@ show_status() {
 
 case "$ACTION" in
 up)
-  if [ "$(box_id)" != "None" ]; then
+  # 빈 값으로 판단한다.
+  #
+  # 전에는 "None 이 아니면 있다" 로 봤다. AWS CLI 가 결과 없는 조회에 None 을 돌려주기
+  # 때문이다. box_ids 로 바꾸면서 빈 문자열이 되었고, 빈 문자열은 None 이 아니어서 이 가드가
+  # 항상 참이 됐다. terminated 인스턴스만 남은 상태에서 up 이 "이미 떠 있다" 로 끝났다.
+  if [ -n "$(box_id)" ]; then
     log "이미 떠 있다"
     show_status
     exit 0
