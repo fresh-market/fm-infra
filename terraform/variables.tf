@@ -371,6 +371,34 @@ variable "k6_version" {
   default     = "1.7.1"
 }
 
+variable "load_test_count" {
+  description = "부하 생성 인스턴스 대수. 2만 VU 를 이 대수로 나눠 나눠 쏜다"
+  type        = number
+  default     = 2
+
+  /*
+   * 2 가 기본인 이유가 실측이다.
+   *
+   * 2026-09-27 에 한 대로 2만 VU 를 걸었더니 k6 가 7.4 GB 를 써서 커널이 죽였다.
+   * m7i-flex.large 가 8 GB 이고 VU 당 약 369 KB 였다. 93% 라 여유가 없다.
+   *
+   * 인스턴스를 키우는 길은 막혀 있다. 이 계정이 프리 티어라 m7i.xlarge 를 거부하고,
+   * 띄울 수 있는 것 중 메모리가 가장 큰 것이 m7i-flex.large 다 (instance_types 주석).
+   * VU 2만은 요구사항이 정한 값이라 줄일 수도 없다.
+   *
+   * 그래서 나눈다. 2대면 대당 1만 VU 에 약 3.6 GB 로 45% 다. instance_types 주석이
+   * "하나라도 어긋나면 부하를 여러 대로 나눠야 한다" 고 미리 적어 둔 그 길이다.
+   *
+   * 늘릴 때는 토큰 배분을 함께 본다. k6 의 execution-segment 가 VU 번호 공간을 나누므로
+   * 시나리오가 exec.vu.idInTest 로 고르는 토큰이 대별로 겹치지 않는다. 세그먼트를 안 주면
+   * 두 대가 같은 토큰을 써서 1인 1매 위반이 생성기 탓으로 난다.
+   */
+  validation {
+    condition     = var.load_test_count >= 1 && var.load_test_count <= 4
+    error_message = "1 이상 4 이하여야 한다. 4 를 넘으면 퍼블릭 서브넷 IP 예산을 다시 본다."
+  }
+}
+
 variable "load_test_enabled" {
   description = "부하 생성 인스턴스를 띄울지 여부"
   type        = bool

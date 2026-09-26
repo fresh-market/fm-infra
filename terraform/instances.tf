@@ -165,7 +165,11 @@ resource "aws_instance" "batch" {
  * 상시 가동 전제의 예외라 count 로 끈다.
  */
 resource "aws_instance" "load_test" {
-  count = var.load_test_enabled ? 1 : 0
+  /*
+   * 한 대로는 2만 VU 를 못 낸다. 근거는 variable "load_test_count" 주석에 있다.
+   * 요약하면 k6 가 VU 당 약 369 KB 를 쓰고 8 GB 가 이 계정의 상한이다.
+   */
+  count = var.load_test_enabled ? var.load_test_count : 0
 
   ami                    = data.aws_ami.ubuntu_x86.id
   instance_type          = var.instance_types["load_test"]
@@ -187,9 +191,22 @@ resource "aws_instance" "load_test" {
     http_put_response_hop_limit = 2
   }
 
+  /*
+   * 세그먼트 번호를 태그로 심는다.
+   *
+   * k6 의 execution-segment 는 VU 번호 공간을 대별로 나눠 주는 값이고, 이 인스턴스가
+   * 자기 몫을 알아야 그것을 인자로 줄 수 있다. 태그로 두는 이유는 인스턴스가 스스로
+   * 자기 태그를 읽을 수 있어서다. SSM 에 두면 대수가 바뀔 때마다 파라미터를 늘려야 한다.
+   *
+   * 이 값이 어긋나면 두 대가 같은 토큰을 써서 1인 1매 위반이 난다. 앱이 아니라 생성기
+   * 탓인데 지표에서는 구분이 안 되므로, loadtest-box.sh 가 띄운 뒤 이 값을 검산한다.
+   */
   tags = {
-    Name = "${var.project}-load-test"
+    Name = "${var.project}-load-test-${count.index + 1}"
     Role = "load-test"
+    # k6 의 --execution-segment 표기 그대로다. 구간이지 번호가 아니다.
+    # 0:1/2 과 1/2:1 처럼 시작과 끝을 콜론으로 잇는다.
+    Segment = "${count.index == 0 ? "0" : "${count.index}/${var.load_test_count}"}:${count.index + 1 == var.load_test_count ? "1" : "${count.index + 1}/${var.load_test_count}"}"
   }
 }
 
