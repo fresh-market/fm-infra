@@ -72,7 +72,7 @@ resource "aws_elasticache_replication_group" "main" {
 
   /*
    * 9.0 에서 9.1 로 올라가지 못하게 한다.
-   * 기술 스택 3.2절이 "9-alpine 을 쓰면 안 된다. 그 태그는 9.1 로 풀린다" 고 못 박았다.
+   * 기술 스택 4.2절이 "9-alpine 을 쓰면 안 된다. 그 태그는 9.1 로 풀린다" 고 못 박았다.
    * 로컬 이미지를 9.0 으로 고정해 두고 운영만 올라가면 동작이 갈린다.
    */
   auto_minor_version_upgrade = false

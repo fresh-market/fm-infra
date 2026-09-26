@@ -145,7 +145,7 @@ resource "aws_db_event_subscription" "failover" {
  */
 
 /*
- * 예산 초과 알림 (기술 스택 확정 문서 5.5절).
+ * 예산 초과 알림 (기술 스택 확정 문서 6.5절).
  * 무료다. AWS Budgets 는 계정당 두 개까지 요금이 없다.
  *
  * 알람과 다른 축을 본다.
