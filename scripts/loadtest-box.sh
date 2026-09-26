@@ -27,14 +27,25 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOURLY="0.1177"
 
 ACTION="${1:-}"
+# up 의 둘째 인자가 생성기 대수다. 비우면 terraform 의 기본값을 쓴다
+COUNT="${2:-}"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+# 둘째 인자로 대수를 받는다. 비우면 terraform 의 기본값 2 를 쓴다.
+#
+# 대수를 tfvars 에 적지 않는 이유가 load_test_enabled 와 같다. 다른 이유로 apply 할 때
+# 되살아나면 안 된다. 생성기 대수를 바꿔 가며 재는 회차가 있어 인자로 받는다.
 tf() {
   cd "$ROOT/terraform"
   terraform init -input=false -backend-config=backend.hcl > /dev/null
-  terraform apply -auto-approve -input=false -var "load_test_enabled=$1"
+  if [ -n "${2:-}" ]; then
+    terraform apply -auto-approve -input=false \
+      -var "load_test_enabled=$1" -var "load_test_count=$2"
+  else
+    terraform apply -auto-approve -input=false -var "load_test_enabled=$1"
+  fi
 }
 
 # 첫 대. 상태 표시처럼 대표 하나만 있으면 되는 곳이 쓴다
@@ -96,8 +107,8 @@ up)
     exit 0
   fi
 
-  log "1. 인스턴스 생성"
-  tf true
+  log "1. 인스턴스 생성${COUNT:+ ($COUNT 대)}"
+  tf true "${COUNT:-}"
 
   ids=$(box_ids)
   count=$(printf '%s\n' "$ids" | wc -l | tr -d ' ')
