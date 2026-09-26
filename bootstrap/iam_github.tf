@@ -1,4 +1,62 @@
 /*
+ * 2026-09-26 에 terraform/ 에서 여기로 옮겼다.
+ *
+ * destroy 가 이 자원들을 지우면 main 에 병합된 배포가 OIDC 검증 실패로 죽는다.
+ * 오류가 "The web identity token provided could not be validated" 라 토큰을 가리키고,
+ * 원인이 인프라 부재라는 것을 읽을 수 없다. 09-24 와 09-26 에 5회 실패했고 릴리스 둘이
+ * 배포되지 않은 채 남았다. ECR 이미지 0개가 그 결과다.
+ *
+ * IAM 은 유지 비용이 0 이라 SSM 시크릿과 같은 근거로 파괴를 견디는 계층에 있어야 한다.
+ * 그 근거는 이 파일 위 main.tf 머리와 apply.sh 2단계에 있다.
+ */
+
+/*
+ * terraform/ssm.tf 와 같은 값이다. 두 구성이 같은 접두사를 가리켜야 정책이 실제 파라미터를 덮는다.
+ * 양쪽이 var.project 하나에서 나오므로 어긋날 길은 project 를 다르게 주는 것뿐이다.
+ */
+locals {
+  ssm_prefix = "/${var.project}"
+}
+
+variable "github_org" {
+  description = "GitHub 조직. OIDC 신뢰 조건에 쓴다"
+  type        = string
+  default     = "fresh-market"
+}
+
+variable "github_org_id" {
+  description = "GitHub 조직의 숫자 ID"
+  type        = string
+  default     = "311220188"
+}
+
+variable "github_backend_repo" {
+  description = "배포를 트리거하는 저장소. 이 저장소의 main 브랜치만 배포 역할을 맡을 수 있다"
+  type        = string
+  default     = "fm-backend"
+}
+
+variable "github_backend_repo_id" {
+  description = "fm-backend 저장소의 숫자 ID"
+  type        = string
+  default     = "1317781402"
+}
+
+variable "github_infra_repo" {
+  description = "terraform plan 을 돌리는 저장소"
+  type        = string
+  default     = "fm-infra"
+}
+
+variable "github_infra_repo_id" {
+  description = "fm-infra 저장소의 숫자 ID"
+  type        = string
+  default     = "1317795965"
+}
+
+data "aws_caller_identity" "current" {}
+
+/*
  * GitHub Actions 에 장기 액세스 키를 두지 않는다.
  * OIDC 로 토큰을 받아 역할을 맡고, 신뢰 조건에 저장소와 브랜치를 못 박는다.
  *
@@ -187,7 +245,12 @@ data "aws_iam_policy_document" "deploy" {
       "ecr:PutImage",
     ]
 
-    resources = [aws_ecr_repository.app.arn]
+    /*
+     * ECR ARN 을 문자열로 적는다. 이 구성은 terraform/ 의 aws_ecr_repository 를 모른다.
+     * 이름이 var.project 로 결정되므로 ARN 도 결정적이다. 실제 값과 일치하는 것을 확인했다.
+     * 자원이 아직 없어도 된다. 정책은 존재하지 않는 ARN 도 담을 수 있다.
+     */
+    resources = ["arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/${var.project}"]
   }
 
   statement {

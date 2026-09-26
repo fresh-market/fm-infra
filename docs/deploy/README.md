@@ -143,8 +143,10 @@ GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
 ### 최초 1회만 하는 것
 
 ```bash
-cd terraform
+# 배포 역할은 bootstrap 이 갖는다. destroy 를 견뎌야 하기 때문이다 (iam_github.tf 머리 참고)
+cd bootstrap
 terraform output github_role_arns   # deploy 값을 fm-backend 의 AWS_DEPLOY_ROLE_ARN 변수로
+cd ..
 
 cp docs/deploy/backend-deploy-workflow.yml ../backend/.github/workflows/deploy.yml
 ```

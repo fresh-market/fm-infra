@@ -4,7 +4,7 @@
 # ASG 이름, 대상 그룹 이름, SSM 경로가 전부 Terraform 이 정한 값이다.
 #
 # 적용하려면 fm-backend 에 이 파일을 복사하고 아래를 설정한다.
-#   변수   AWS_DEPLOY_ROLE_ARN   terraform output github_role_arns 의 deploy 값
+#   변수   AWS_DEPLOY_ROLE_ARN   bootstrap 에서 terraform output github_role_arns 의 deploy 값
 #   시크릿 SLACK_WEBHOOK_DEPLOY  #alerts-deploy 채널 웹훅
 
 name: 배포

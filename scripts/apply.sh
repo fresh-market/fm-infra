@@ -16,6 +16,9 @@ set -euo pipefail
 
 PROJECT="${PROJECT:-freshmarket}"
 REGION="${AWS_REGION:-ap-northeast-2}"
+# 7단계가 배포를 걸 대상이다. terraform/variables.tf 의 github_org 와 github_backend_repo 와 같다.
+GITHUB_ORG="${GITHUB_ORG:-fresh-market}"
+BACKEND_REPO="${BACKEND_REPO:-fm-backend}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
@@ -154,11 +157,31 @@ else
   log "   실행 중인 모니터링 인스턴스가 없다"
 fi
 
+# 7. 배포를 걸어 준다.
+#
+#    사람에게 시키던 일이다. 그런데 안 하면 인프라만 서고 앱은 뜨지 않는다.
+#    current-sha 가 bootstrap 인 채로 남아 인스턴스가 없는 태그를 당긴다.
+#
+#    2026-09-26 에 그 일이 났다. destroy 가 배포 역할까지 지워서 main 병합으로 돈 배포가
+#    OIDC 검증 실패로 죽었고, 인프라를 다시 올려도 재시도가 없어 릴리스 둘이 배포되지 않은 채
+#    남았다. ECR 이미지 0개로 드러났다.
+#
+#    gh 가 없거나 로그인이 안 되어 있으면 안내만 남기고 넘어간다. apply 를 막을 일이 아니다.
+log "7. 배포"
+if command -v gh > /dev/null && gh auth status > /dev/null 2>&1; then
+  if gh workflow run deploy.yml --repo "$GITHUB_ORG/$BACKEND_REPO" --ref main > /dev/null 2>&1; then
+    log "   $BACKEND_REPO main 배포를 걸었다. gh run list --repo $GITHUB_ORG/$BACKEND_REPO 로 본다"
+  else
+    log "   배포 트리거에 실패했다. 손으로 돌린다: gh workflow run deploy.yml --repo $GITHUB_ORG/$BACKEND_REPO --ref main"
+  fi
+else
+  log "   gh 가 없거나 로그인이 안 되어 있다. 손으로 돌린다"
+  log "     ./scripts/deploy.sh <커밋 SHA>     또는 main 에 병합해 워크플로를 돌린다"
+fi
+
 echo
-log "완료. 남은 것은 둘이다"
-log "  1. 확인 메일의 링크를 누른다. 구독이 다시 만들어져 CloudWatch 알람이 갈 곳이 없다"
-log "  2. 배포를 한 번 돌린다. current-sha 가 bootstrap 이라 앱이 아직 뜨지 않는다"
-log "       ./scripts/deploy.sh <커밋 SHA>     또는 main 에 병합해 워크플로를 돌린다"
+log "완료. 남은 것은 하나다"
+log "  확인 메일의 링크를 누른다. 구독이 다시 만들어져 CloudWatch 알람이 갈 곳이 없다"
 log ""
 log "  CDN 도메인과 ALB 주소는 손댈 것이 없다."
 log "  앞의 것은 방금 5단계가 SSM 에 실었고, 뒤의 것은 deploy.sh 가 그때 조회한다."
