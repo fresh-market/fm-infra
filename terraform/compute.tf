@@ -251,6 +251,21 @@ resource "aws_autoscaling_group" "app" {
   lifecycle {
     ignore_changes = [desired_capacity]
   }
+
+  /*
+   * 인스턴스가 읽을 SSM 값이 먼저 있어야 한다. 근거는 instances.tf 의 aws_instance.batch 에 있다.
+   *
+   * ASG 는 apply 도중에 인스턴스를 띄우므로 이 순서가 없으면 첫 대수가 값 없이 뜬다.
+   * 그 인스턴스는 헬스체크에 실패해 ASG 가 교체하므로 스스로 낫지만, 교체가 도는 동안
+   * 배포의 healthy 대기가 헛돈다.
+   */
+  depends_on = [
+    aws_ssm_parameter.current_sha,
+    aws_ssm_parameter.db_endpoint,
+    aws_ssm_parameter.cache_endpoint,
+    aws_ssm_parameter.cdn_domain,
+    aws_ssm_parameter.loki_endpoint,
+  ]
 }
 
 /*
@@ -366,6 +381,21 @@ resource "aws_autoscaling_group" "coupon" {
   lifecycle {
     ignore_changes = [desired_capacity]
   }
+
+  /*
+   * 인스턴스가 읽을 SSM 값이 먼저 있어야 한다. 근거는 instances.tf 의 aws_instance.batch 에 있다.
+   *
+   * ASG 는 apply 도중에 인스턴스를 띄우므로 이 순서가 없으면 첫 대수가 값 없이 뜬다.
+   * 그 인스턴스는 헬스체크에 실패해 ASG 가 교체하므로 스스로 낫지만, 교체가 도는 동안
+   * 배포의 healthy 대기가 헛돈다.
+   */
+  depends_on = [
+    aws_ssm_parameter.current_sha,
+    aws_ssm_parameter.db_endpoint,
+    aws_ssm_parameter.cache_endpoint,
+    aws_ssm_parameter.cdn_domain,
+    aws_ssm_parameter.loki_endpoint,
+  ]
 }
 
 /*

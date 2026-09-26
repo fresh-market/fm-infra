@@ -52,6 +52,24 @@ resource "aws_instance" "monitoring" {
     Role = "monitoring"
   }
 
+  /*
+   * 모니터링이 읽을 SSM 값이 먼저 있어야 한다. 근거는 aws_instance.batch 의 같은 자리에 있다.
+   *
+   * 이쪽은 user-data 에 set -e 가 없어 2026-09-26 에 ParameterNotFound 를 두 번 맞고도 떴다.
+   * 죽지 않았을 뿐이고 값이 빈 채로 뜬 것이라 오히려 찾기 어렵다. 그 둘이 db-endpoint 와
+   * cache-endpoint 이고, mysqld-exporter 와 redis-exporter 가 그 값으로 대상을 잡는다.
+   *
+   * loki-endpoint 와 prometheus-endpoint 는 넣지 않는다. 그 둘의 값이 이 인스턴스의 private_ip
+   * 라서 넣으면 순환이 된다. 다른 인스턴스가 모니터링을 찾는 값이고 모니터링 자신은 안 읽는다.
+   */
+  depends_on = [
+    aws_ssm_parameter.db_endpoint,
+    aws_ssm_parameter.cache_endpoint,
+    aws_ssm_parameter.grafana_root_url,
+    aws_ssm_parameter.grafana_auth_proxy,
+    aws_ssm_parameter.duckdns_hostname,
+  ]
+
   lifecycle {
     # EBS 에 관측 데이터가 있다. 태우면 되돌릴 수 없다.
     prevent_destroy = true
@@ -109,6 +127,24 @@ resource "aws_instance" "batch" {
     Name = "${var.project}-batch"
     Role = "batch"
   }
+
+  /*
+   * 인스턴스가 읽을 SSM 값이 먼저 있어야 한다.
+   *
+   * Terraform 은 user-data 안의 문자열을 읽지 않으므로 이 의존을 스스로 세우지 못한다.
+   * 2026-09-26 에 배치가 RDS 보다 16분 먼저 떠서 db-endpoint 가 없었고, refresh-env 가
+   * 거기서 죽어 systemd 유닛조차 안 쓰였다. 인스턴스는 살아 있는데 아무것도 안 돌았다.
+   *
+   * refresh-env 에도 대기를 넣었지만 그것은 나중 기동을 위한 안전망이다. apply 를 10분
+   * 기다리게 둘 이유가 없으므로 순서는 여기서 못 박는다.
+   */
+  depends_on = [
+    aws_ssm_parameter.current_sha,
+    aws_ssm_parameter.db_endpoint,
+    aws_ssm_parameter.cache_endpoint,
+    aws_ssm_parameter.cdn_domain,
+    aws_ssm_parameter.loki_endpoint,
+  ]
 
   /*
    * 모니터링과 같은 이유로 AMI 변경을 무시한다.
