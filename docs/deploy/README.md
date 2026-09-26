@@ -195,8 +195,34 @@ ASG(앱, 선착순)는 해당 없다. 시작 템플릿은 제자리 갱신되고
 | 다음 `apply` 가 `Error acquiring the state lock` 으로 멈춘다 | terraform 이 락을 못 풀고 죽었다 |
 | RDS 나 캐시가 `AlreadyExists` 로 실패한다 | AWS 에는 만들어졌는데 상태 파일에 안 들어갔다 |
 | 앱이 `UnknownHostException: unset` 으로 재시작을 반복한다 | **2026-09-23 이후로는 안 난다.** Terraform 이 값을 넣는다 |
+| SSM 파라미터가 `ParameterAlreadyExists` 로 실패한다 | 앞의 것과 같은 뿌리다. Terraform 이 만들었는데 상태에 안 들어갔다 |
+| **인스턴스는 떠 있는데 `freshmarket.service` 유닛이 없다** | **그 창에 뜬 인스턴스의 user-data 가 끊겼다. 아래를 보라** |
 
 순서대로 푼다. **앞의 둘을 풀어야 `apply` 가 5단계까지 간다.**
+
+#### 그 창에 뜬 인스턴스는 반쪽으로 남는다
+
+가장 늦게 드러나는 증상이다. **`apply` 가 죽는 동안 이미 부팅한 인스턴스가 있으면 그것의
+user-data 가 중간에 끊긴다.** SSM 파라미터가 아직 없어 `refresh-env` 가 실패하고, user-data 는
+`set -e` 라 거기서 멈춘다. `/opt/{project}/` 에 `.env` 만 있고 `compose.yaml` 도 systemd
+유닛도 안 만들어진다.
+
+**인스턴스는 `running` 이고 SSM 도 붙는다.** 그래서 눈에 안 띈다. 앱 ASG 는 healthy 가 안 되어
+스스로 교체하지만, **배치는 ASG 밖이라 그대로 남는다.**
+
+2026-09-24 에 그렇게 당했다. `deploy.sh` 10단계가 `배치 교체 실패` 를 찍어서 알았다.
+그 경고가 없었으면 배치가 안 도는 채로 넘어갔을 것이다.
+
+```bash
+# 진단: 유닛이 있어야 한다
+aws ssm send-command --instance-ids <id> --document-name AWS-RunShellScript \
+  --parameters 'commands=["systemctl is-active freshmarket","ls /opt/freshmarket/"]'
+
+# 조치: user-data 를 다시 돌리려면 인스턴스를 갈아야 한다
+cd terraform && terraform apply -replace=aws_instance.batch
+```
+
+**고친 뒤 다시 돌리지 않는다.** user-data 는 최초 부팅에만 돈다. 재부팅해도 안 돈다.
 
 **1. 락을 푼다.** 먼저 정말 죽었는지 본다. 도는 `apply` 를 풀면 상태가 깨진다.
 
@@ -250,6 +276,18 @@ done
 ./scripts/stop.sh     # ASG desired 0 -> 모니터링/배치 중지 -> RDS 중지
 ./scripts/start.sh    # RDS 와 인스턴스 시작 -> 엔드포인트 갱신 -> min 2 회복 -> healthy 대기
 ```
+
+**재가동에 502초가 든다** (`OPS-1-14` 실측, 2026-09-24). 그중 492초가 RDS 가 `available` 이
+되기를 기다리는 시간이다. 나머지는 초 단위다. **줄이려면 RDS 를 손봐야 하고 스크립트는 관계없다.**
+
+**`start.sh` 는 `min` 을 2 로 되돌린다.** Terraform 의 `min_size` 와 같은 값이어야 한다.
+한때 1 이었고, 그대로 두면 stop/start 를 한 번 거칠 때마다 이중화가 조용히 풀렸다.
+`terraform plan` 을 돌리기 전까지 안 드러난다.
+
+**중지 중에는 `healthy-host-count` 알람이 울린다.** 앱이 0대라 `HealthyHostCount` 지표가
+아예 안 나오고, 누락 데이터를 `Breaching` 으로 치기 때문이다. `stop.sh` 0단계가 알림을 끄고
+`start.sh` 5단계가 되살리므로 Slack 으로는 안 간다. **콘솔에서 빨간 것을 보면 이것부터 의심한다.**
+재가동 뒤 한 평가 주기(1분)면 `OK` 로 돌아온다.
 
 ## 부하 생성기
 
