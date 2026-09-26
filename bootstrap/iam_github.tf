@@ -83,14 +83,31 @@ resource "aws_iam_openid_connect_provider" "github" {
 locals {
   github_roles = {
     deploy = {
-      description = "deploy on merge to fm-backend main"
+      description = "deploy on merge to fm-backend main, and perf/* for version comparison"
+      /*
+       * main 과 perf/* 만 허용한다.
+       *
+       * 쿠폰 발급 v1 에서 v3 까지를 부하 시험으로 비교하려면 그 브랜치에서 이미지를 만들어야
+       * 한다. main 에 병합하면 운영이 잠시 v4 보다 나쁜 구현으로 돈다.
+       *
+       * 와일드카드를 여기까지만 넓힌다. 브랜치 전체를 열면 누구든 브랜치를 밀어 배포 역할을
+       * 얻는다. 이 역할은 ECR push 와 SSM 쓰기와 ASG 조작을 갖고 있어 사실상 운영 권한이다.
+       * perf/ 접두사는 시험용 브랜치에만 쓰기로 한 약속이고, 그 약속이 이 조건의 근거다.
+       *
+       * StringLike 가 필요해 조건을 둘로 나눈다. StringEquals 는 와일드카드를 안 본다.
+       */
       subjects = [
         "repo:${var.github_org}/${var.github_backend_repo}:ref:refs/heads/main",
         "repo:${var.github_org}@${var.github_org_id}/${var.github_backend_repo}@${var.github_backend_repo_id}:ref:refs/heads/main",
       ]
+      like_subjects = [
+        "repo:${var.github_org}/${var.github_backend_repo}:ref:refs/heads/perf/*",
+        "repo:${var.github_org}@${var.github_org_id}/${var.github_backend_repo}@${var.github_backend_repo_id}:ref:refs/heads/perf/*",
+      ]
     }
     tf_plan = {
-      description = "terraform plan from fm-infra pull requests"
+      description   = "terraform plan from fm-infra pull requests"
+      like_subjects = []
       subjects = [
         "repo:${var.github_org}/${var.github_infra_repo}:pull_request",
         "repo:${var.github_org}@${var.github_org_id}/${var.github_infra_repo}@${var.github_infra_repo_id}:pull_request",
@@ -122,6 +139,42 @@ data "aws_iam_policy_document" "github_assume" {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = each.value.subjects
+    }
+  }
+
+  /*
+   * 와일드카드가 필요한 주체는 별도 statement 로 나눈다.
+   *
+   * 한 statement 에 StringEquals 와 StringLike 를 같이 두면 AND 가 되어 둘을 동시에 만족해야
+   * 한다. main 은 와일드카드와 안 맞고 perf 는 정확 일치와 안 맞으니 아무도 통과하지 못한다.
+   * statement 가 둘이면 OR 이다.
+   *
+   * like_subjects 가 비면 이 statement 를 만들지 않는다. 빈 values 는 조건이 항상 거짓인
+   * statement 를 만들어 읽는 사람을 헷갈리게 한다.
+   */
+  dynamic "statement" {
+    for_each = length(each.value.like_subjects) > 0 ? [1] : []
+
+    content {
+      effect  = "Allow"
+      actions = ["sts:AssumeRoleWithWebIdentity"]
+
+      principals {
+        type        = "Federated"
+        identifiers = [aws_iam_openid_connect_provider.github.arn]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "token.actions.githubusercontent.com:aud"
+        values   = ["sts.amazonaws.com"]
+      }
+
+      condition {
+        test     = "StringLike"
+        variable = "token.actions.githubusercontent.com:sub"
+        values   = each.value.like_subjects
+      }
     }
   }
 }
