@@ -193,8 +193,17 @@ run)
   #
   # 마지막을 count/count 로 적으면 안 된다. k6 는 끝을 1 로 본다.
   # 2대면 "0,1/2,1" 이고 각 대의 세그먼트는 "0:1/2" 과 "1/2:1" 이다.
+  # seq 를 쓰지 않는다.
+  #
+  # 1대일 때 count-1 이 0 이고, macOS 의 seq 1 0 은 빈 값이 아니라 "1 0" 을 낸다.
+  # 그래서 수열이 "0,1/1,0/1,1" 이 되어 구간 하나가 1:0 으로 뒤집혔고 k6 가 거부했다.
+  # GNU seq 는 비어 있어 이 차이가 리눅스에서는 드러나지 않는다.
   seq_arg="0"
-  for i in $(seq 1 $(( count - 1 ))); do seq_arg="$seq_arg,$i/$count"; done
+  i=1
+  while [ "$i" -lt "$count" ]; do
+    seq_arg="$seq_arg,$i/$count"
+    i=$(( i + 1 ))
+  done
   seq_arg="$seq_arg,1"
 
   log "회차 $TAG 를 $count 대에 건다  (수열 $seq_arg)"
