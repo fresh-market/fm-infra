@@ -27,7 +27,11 @@ COUPON_ID="${COUPON_ID:-900001}"
 ACTION="${1:-}"
 BASE_RAW="https://raw.githubusercontent.com/$ORG/$REPO/$REF/loadtest"
 
-log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
+# 진행 로그는 stderr 로 보낸다.
+#
+# stdout 은 run_on_batch 가 배치의 출력을 돌려주는 자리다. 로그가 거기 섞이면
+# out=$(run_on_batch ...) 가 로그를 값으로 읽는다. 검산이 실제로 그렇게 깨졌다.
+log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 # 배치 인스턴스에서 돌 스크립트의 머리다.
