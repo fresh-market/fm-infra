@@ -84,6 +84,11 @@ run_on_batch() {
   #
   # 여러 줄 스크립트를 셸 인용으로 넘기는 것도 반드시 깨진다. JSON 파일로 준다.
   #
+  # 지우기를 따로 떼어 마지막 명령으로 두면 안 된다. SSM 은 마지막 명령의 exit code 를
+  # 전체 상태로 삼으므로, rm 이 늘 성공해서 본문이 죽어도 Success 가 된다. 2026-09-27 에
+  # 앱이 스키마를 만들기 전에 시드가 돌아 Table doesn't exist 로 죽었는데 이 스크립트는
+  # 완료로 끝났고, 회차가 빈 DB 로 시작했다. 그래서 한 줄에 이어 붙여 rc 를 보존한다.
+  #
   tmp=$(mktemp)
   trap 'rm -f "$tmp"' RETURN
   BODY="$body" python3 -c '
@@ -91,8 +96,7 @@ import json, os
 body = os.environ["BODY"]
 print(json.dumps({"commands": [
     "cat > /tmp/loadtest-seed-body.sh <<\"FMSEEDEOF\"\n" + body + "\nFMSEEDEOF",
-    "bash /tmp/loadtest-seed-body.sh",
-    "rm -f /tmp/loadtest-seed-body.sh",
+    "bash /tmp/loadtest-seed-body.sh; rc=$?; rm -f /tmp/loadtest-seed-body.sh; exit $rc",
 ]}))
 ' > "$tmp"
 
@@ -136,6 +140,18 @@ case "$ACTION" in
 apply)
   log "1. 시드 주입. 커밋 $REF 의 SQL 을 쓴다"
   run_on_batch "$(pour 'seed-dummy-data.sql seed-members.sql seed-coupon.sql')"
+
+  # 넣은 뒤에 센다.
+  #
+  # SQL 이 도중에 죽어도 앞의 파일은 들어가 있어 출력만 보면 통과처럼 보인다. 시험 쿠폰이
+  # 없으면 이벤트 열기가 404 로 끝나고, 회차는 그때서야 멈춘다.
+  log "2. 검산"
+  out=$(run_on_batch "$(printf 'P=/%s\nR=%s\n%s\n%s -N -B <<%s\nSELECT (SELECT COUNT(*) FROM member) , (SELECT COUNT(*) FROM member_coupon) , (SELECT COUNT(*) FROM coupon WHERE coupon_id = %s);\n%s\n' \
+    "$PROJECT" "$REGION" "$(db_preamble)" "$(mysql_cmd)" "SQL" "$COUPON_ID" "SQL")")
+  set -- $out
+  printf '   회원 %s / 발급이력 %s / 시험쿠폰 %s\n' "${1:-0}" "${2:-0}" "${3:-0}"
+  [ "${3:-0}" = "1" ] || die "시험 쿠폰 $COUPON_ID 가 없다. 시드가 다 들어가지 않았다"
+  [ "${1:-0}" -ge 20000 ] || die "회원이 ${1:-0} 명뿐이다. 시드가 다 들어가지 않았다"
   log "완료"
   printf '\n다음 둘은 이 스크립트가 하지 않는다.\n'
   printf '  1. 토큰 찍기      부하 생성기에서 sudo /opt/loadtest/refresh.sh\n'
