@@ -232,38 +232,47 @@ variable "grafana_https_allowed_cidrs" {
  *
  * load_test 는 x86 이다. k6 는 멀티아키를 제공하므로 제약은 아니고 나머지와 맞춰 둔 것이다.
  *
- * m7i-flex.large 는 고른 것이 아니라 남은 것이다 (2026-08-30).
+ * load_test 는 r7i.large 다 (2026-09-27). 메모리 때문에 고른 것이다.
  *
- * 확정값은 m7i.xlarge (4 vCPU / 16 GB) 였고 실측에서 나온 값이었다. 그런데 이 계정이
- * 프리 티어라 RunInstances 가 거부한다. InvalidParameterCombination 으로 떨어진다.
- * 띄울 수 있는 것이 여섯뿐이고 그중 메모리가 가장 큰 것이 m7i-flex.large 8 GB 다.
+ * 전에는 m7i-flex.large (2 vCPU / 8 GB) 였다. 확정값이 m7i.xlarge (4 vCPU / 16 GB) 였는데
+ * 이 계정이 프리 티어라 RunInstances 가 InvalidParameterCombination 으로 거부했고,
+ * 그때 m 과 c 와 t 계열에서만 후보를 찾아 8 GB 가 상한이라고 적었다.
  *
- *   m7i-flex.large  2 vCPU  8 GB   <- 이것뿐
- *   c7i-flex.large  2 vCPU  4 GB
- *   t3.small / t4g.small   2 GB
- *   t3.micro / t4g.micro   1 GB
+ * 거부의 이유는 메모리가 아니라 vCPU 4 였다. r 계열은 2 vCPU 로 16 GB 를 주므로 그 제한에
+ * 걸리지 않는다. dry-run 으로 r7i.large 와 r6i.large 와 r5.large 가 모두 통과한다.
  *
- * 그래서 아래 둘을 알면서 어긴다.
+ *   r7i.large       2 vCPU  16 GiB   0.1596 USD/시간   <- 이것
+ *   m7i-flex.large  2 vCPU   8 GiB   0.1177 USD/시간   전에 쓴 것
  *
- * 하나. 메모리 여유가 얇다. 2만 VU 에 5.0 GB 를 썼으니 8 GB 의 63% 다. 실제 서버는
- * 응답이 밀려 in-flight 버퍼가 더 잡히므로 이보다 오른다.
+ * 시간당 0.0419 USD 더 들고 36% 다. 회차당 두세 시간만 띄우므로 회차 하나에 0.1 USD 안쪽이다.
  *
- * 둘. flex 를 안 쓰기로 했던 결정을 어긴다. 측정 안정성 때문이었던 결정이다.
+ * 8 GB 로는 요구 부하를 담지 못한다. 2026-09-27 회차에서 VU 2만이 anon-rss 7,268 MiB 를
+ * 썼고, 인스턴스의 MemTotal 이 7,776 MiB 이며 k6 실행 전 used 가 544 MiB 였다. 합이
+ * 7,812 MiB 로 36 MiB 초과다. 열두 회차 중 열한 회차에서 커널이 k6 를 죽였다.
  *
- * 크레딧 이야기가 아니다. m7i-flex 는 BurstablePerformanceSupported 가 false 라
- * T 계열과 달리 크레딧을 쓰지 않는다. 베이스라인 위에서 24시간 중 95% 를 풀 성능으로
- * 보장하는 방식이다. describe-instance-credit-specifications 가 standard 를 돌려주지만
- * 버스터블이 아닌 타입에는 의미 없는 잔여 필드다.
+ * 2026-08-28 실측은 2만 VU 에 5.0 GB 였다. 그 값으로 8 GB 의 63% 라고 적었다.
  *
- * 그래서 오히려 진단이 어렵다. T 계열이면 회차 간 차이가 났을 때 CPUCreditBalance 를 보고
- * 크레딧이 말랐는지 알 수 있는데, flex 에는 그런 지표가 없다. 원인 없이 숫자만 흔들린다.
- * 대책은 같은 회차를 두 번 이상 돌려 재현되는지 보는 것뿐이다.
+ * 그 뒤 fm-backend 가 원인을 적었다. k6 는 오류 경로가 늘면 못 버틴다
+ * (docs/coupon/rebuild-measurement-2026-09-21b.md 4장). 2026-09-21 에 DB 를 막은 회차
+ * 둘이 87% 부근에서 죽고 정상 회차 하나는 살아남았다. 그때도 anon-rss 7,464,780 kB 였다.
  *
- * CPU 는 원래 실측하지 못했고 이제 4 vCPU 가 아니라 2 vCPU 다.
+ * 그래서 실패 응답이 많은 회차일수록 위험하다. 2026-09-27 회차는 v1 이 요청의 80%에 500 을
+ * 돌려주고 나머지 버전도 혼잡이 있어서 열두 회차 중 열한 회차가 죽었다. 2026-09-14 회차는
+ * 혼잡 0, 재시도 0, 실패율 0.00% 라 버텼다.
+ *
+ * 같은 문서의 "다음에 할 것" 5번이 부하 상자를 메모리가 큰 타입으로 올리라고 적었다.
+ * 이 변경이 그 항목이다.
+ *
+ * vCPU 는 2 로 그대로 둔다. CPU 축을 바꾸면 기존 회차와 비교할 수 없다. 메모리가 부족해서
+ * 죽는 것을 없애는 변경은 측정을 왜곡하지 않지만 CPU 를 바꾸는 것은 왜곡한다.
+ *
+ * flex 를 벗는 것은 부수 효과로 얻는다. flex 는 BurstablePerformanceSupported 가 false 라
+ * 크레딧을 쓰지 않는데, 그래서 T 계열의 CPUCreditBalance 같은 지표가 없다. 회차 간 차이가
+ * 났을 때 원인을 볼 자리가 없었다. r7i 는 flex 가 아니다.
  *
  * 첫 회차에서 셋을 본다. dropped_iterations 가 0 인가, free -m 에 스왑이 안 생기는가,
  * CPU 가 100% 에 안 붙는가. 하나라도 어긋나면 이 인스턴스의 한계를 잰 것이지
- * 앱의 한계를 잰 것이 아니다. 그때는 부하를 여러 대로 나눠야 한다.
+ * 앱의 한계를 잰 것이 아니다.
  */
 variable "instance_types" {
   description = "역할별 인스턴스 타입. 기술 스택 확정 문서 2.6절"
@@ -273,7 +282,7 @@ variable "instance_types" {
     app        = "t3.small"
     monitoring = "t4g.small"
     batch      = "t3.small"
-    load_test  = "m7i-flex.large"
+    load_test  = "r7i.large"
   }
 }
 

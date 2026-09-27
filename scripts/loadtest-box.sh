@@ -21,9 +21,9 @@ PROJECT="${PROJECT:-freshmarket}"
 REGION="${AWS_REGION:-ap-northeast-2}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# m7i-flex.large 온디맨드 (ap-northeast-2, 2026-08-30 조회).
+# r7i.large 온디맨드 (ap-northeast-2, 2026-09-27 조회).
 # 프리 티어 크레딧에서 차감된다. 이 타입은 무료 할당 대상이 아니다.
-HOURLY="0.1177"
+HOURLY="0.1596"
 
 ACTION="${1:-}"
 
