@@ -59,6 +59,40 @@ mkdir -p /opt/loadtest
 k6 version > /opt/loadtest/k6-version.txt 2>&1
 
 #
+# node_exporter 를 박는다. 모니터링이 9100 으로 긁는다.
+#
+# 2026-08-28 에 이 인스턴스를 고를 때 CPU 를 실측하지 못했고 그 뒤로도 못 쟀다. 회차마다 top 을
+# 손으로 걸어야 했기 때문이다. 익스포터가 있으면 CPU 와 메모리를 회차 창으로 잘라 query_range 로
+# 뽑을 수 있고, p99 를 뽑는 절차와 같아진다.
+#
+# 생성기가 병목이면 그 지연이 앱의 응답 시간으로 기록되므로 이 값이 p99 해석에 필요하다.
+#
+# docker 를 안 깐다. 이 인스턴스에는 docker 가 없고 익스포터 하나 때문에 넣을 이유가 없다.
+# k6 와 같이 릴리스 tarball 을 박고 systemd 로 돌린다. 버전은 compose 가 쓰는 것과 맞춘다.
+NE_VERSION=${node_exporter_version}
+curl -fsSL "https://github.com/prometheus/node_exporter/releases/download/v$NE_VERSION/node_exporter-$NE_VERSION.linux-amd64.tar.gz" \
+  -o /tmp/ne.tar.gz
+tar -xzf /tmp/ne.tar.gz -C /tmp
+install -m 0755 "/tmp/node_exporter-$NE_VERSION.linux-amd64/node_exporter" /usr/local/bin/node_exporter
+rm -rf /tmp/ne.tar.gz "/tmp/node_exporter-$NE_VERSION.linux-amd64"
+
+cat > /etc/systemd/system/node-exporter.service <<'NEUNIT'
+[Unit]
+Description=Prometheus node_exporter
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/node_exporter
+Restart=always
+User=nobody
+
+[Install]
+WantedBy=multi-user.target
+NEUNIT
+systemctl daemon-reload
+systemctl enable --now node-exporter
+
+#
 # 시험할 때마다 콘솔에서 찾아 오지 않게 미리 넣어 둔다.
 #
 # 결과를 Prometheus 로 민다. 끝난 뒤 CSV 를 보는 것과 달리 도는 중에 보이고,

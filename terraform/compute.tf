@@ -66,6 +66,8 @@ locals {
     backend_repo     = var.github_backend_repo
     alb_dns_name     = aws_lb.main.dns_name
     k6_version       = var.k6_version
+    # compose.yaml 의 prom/node-exporter 태그와 같은 값을 쓴다
+    node_exporter_version = var.node_exporter_version
   })
 
   monitoring_user_data = templatefile("${path.module}/templates/monitoring-user-data.sh.tftpl", {

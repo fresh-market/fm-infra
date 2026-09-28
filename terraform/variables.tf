@@ -379,6 +379,21 @@ variable "db_maintenance_window" {
  *
  * 올릴 때는 이 값만 바꾸고 메모리를 다시 잰 뒤 deploy/README 의 실측표를 갱신한다.
  */
+/*
+ * 부하 생성기의 node_exporter 버전이다.
+ *
+ * observability/compose.yaml 이 쓰는 prom/node-exporter 태그와 같은 값을 둔다. 다른 인스턴스는
+ * 도커로 돌리고 생성기는 바이너리로 돌리는데, 버전이 갈리면 같은 지표가 다른 이름으로 나올 수
+ * 있어 회차 간 비교가 흔들린다.
+ *
+ * 올릴 때는 compose.yaml 과 함께 올린다.
+ */
+variable "node_exporter_version" {
+  description = "부하 생성기에 설치할 node_exporter 버전. compose.yaml 과 같은 값을 둔다"
+  type        = string
+  default     = "1.9.1"
+}
+
 variable "k6_version" {
   description = "부하 생성기에 설치할 k6 버전"
   type        = string

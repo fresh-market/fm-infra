@@ -166,6 +166,16 @@ resource "aws_vpc_security_group_ingress_rule" "exporters_from_mon" {
     batch_node     = { sg = aws_security_group.batch.id, port = 9100, desc = "node_exporter" }
     batch_cadvisor = { sg = aws_security_group.batch.id, port = 8082, desc = "cAdvisor" }
     batch_mgmt     = { sg = aws_security_group.batch.id, port = 8081, desc = "actuator" }
+    /*
+     * 부하 생성기에도 node_exporter 가 뜬다.
+     *
+     * 2026-08-28 에 인스턴스를 고를 때 CPU 를 실측하지 못했고 그 뒤로도 못 쟀다. 회차마다 top
+     * 을 손으로 걸어야 했기 때문이다. 익스포터를 두면 CPU 와 메모리를 회차 창으로 잘라
+     * query_range 로 뽑을 수 있고, p99 를 뽑는 절차와 같아진다.
+     *
+     * 생성기가 병목이면 그 지연이 앱의 응답 시간으로 기록되므로 이 값이 p99 해석에 필요하다.
+     */
+    loadtest_node = { sg = aws_security_group.loadtest.id, port = 9100, desc = "node_exporter" }
   }
 
   security_group_id            = each.value.sg
