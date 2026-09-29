@@ -11,6 +11,7 @@
 #   ./loadtest-fault.sh lost-tail   복제가 밀린 채 승격된 것을 흉내낸다 (가장 흔하다)
 #   ./loadtest-fault.sh seq-loss    순번 키(counter)를 지워 재건을 일으킨다
 #   ./loadtest-fault.sh app+seq-loss  한 대를 죽이고 순번 키를 지운다
+#   ./loadtest-fault.sh lead-drop   이미 막혀 있을 때 주도자만 풀고 순번 키를 지운다
 #   ./loadtest-fault.sh cache-wipe  순번 네 키를 전부 지운다 (캐시 전손)
 #   ./loadtest-fault.sh status      지금 무엇이 끊겨 있는지
 #   ./loadtest-fault.sh restore     무엇이 걸려 있든 되돌린다
@@ -49,9 +50,9 @@
 #
 #   ./loadtest-fault.sh db      먼저 막는다
 #   k6 를 띄운다                 번호는 나가는데 행이 안 된다. 큐가 쌓인다
-#   주도자만 풀고 counter 를 지운다
+#   ./loadtest-fault.sh lead-drop   주도자만 풀고 counter 를 지운다
 #
-# 이렇게 해서 queued=1645 를 얻었다. 이 순서는 아직 시나리오가 아니라 손으로 해야 한다.
+# 이렇게 해서 queued=1645 를 얻었다. 3단계가 lead-drop 이다.
 #
 # SSM 왕복도 --backlog 를 무디게 만든다. 대당 4~5초라 --backlog 1 이 실제로는 20초다.
 #
@@ -350,17 +351,16 @@ lose_tail() {
 #
 # 나머지 대수는 막힌 채로 둔다. 기여는 Redis 만 건드리므로 DB 가 막혀 있어도 올릴 수
 # 있고, 그 큐가 두꺼운 덕에 lagMillis 에 실제 표본이 쌓인다.
-backlog_then_drop() {
-  local secs="$1" port host lead remote
-  case "$secs" in ''|*[!0-9]*) die "--backlog 는 초를 숫자로 받는다: $secs" ;; esac
+# 이미 DB 가 막혀 있을 때 주도자 한 대만 풀고 그 자리에서 counter 를 지운다.
+#
+# 부하가 돌기 전에 막아야 큐가 쌓이므로, 막는 것과 지우는 것이 회차 안에서 갈라진다.
+# 그 사이에 k6 가 들어간다. backlog_then_drop 은 둘을 붙여 부르는 경우일 뿐이다.
+lead_drop() {
+  local port host lead remote
   port=$(endpoint_port db | awk '{print $2}')
   host=$(endpoint_port cache | awk '{print $1}')
 
   read_targets counter
-
-  cut_link db
-  log "${secs}초 동안 큐를 쌓는다"
-  sleep "$secs"
 
   lead=$(coupon_ids | head -1)
   log "$lead 만 DB 를 풀고 그 자리에서 counter 를 지운다"
@@ -375,6 +375,15 @@ REMOTE
 
   printf 'keys|counter\n' >> "$STATE"
   log "주도자 $lead 가 재건을 이끈다. 나머지는 막힌 채로 두꺼운 큐를 올린다"
+}
+
+backlog_then_drop() {
+  local secs="$1"
+  case "$secs" in ''|*[!0-9]*) die "--backlog 는 초를 숫자로 받는다: $secs" ;; esac
+  cut_link db
+  log "${secs}초 동안 큐를 쌓는다"
+  sleep "$secs"
+  lead_drop
 }
 
 # ---------------------------------------------------------------- 복구
@@ -436,11 +445,15 @@ while [ $# -gt 0 ]; do
     *) ARGS+=("$1"); shift ;;
   esac
 done
-[ ${#ARGS[@]} -ge 1 ] || die "시나리오를 주어라. app | cache | db | app+cache | lost-tail | seq-loss | app+seq-loss | cache-wipe | status | restore"
+[ ${#ARGS[@]} -ge 1 ] || die "시나리오를 주어라. app | cache | db | app+cache | lost-tail | seq-loss | app+seq-loss | lead-drop | cache-wipe | status | restore"
 
 case "${ARGS[0]}" in
   status)  show_status; exit 0 ;;
   restore) restore_all; exit 0 ;;
+  # 이어서 부르는 것이라 아래의 "이미 주입됐다" 가드에 안 걸려야 한다
+  lead-drop)
+    [ -f "$STATE" ] || die "막혀 있는 것이 없다. 먼저 db 를 걸어라"
+    lead_drop; log "주입 완료: lead-drop"; show_status; exit 0 ;;
 esac
 
 [ -f "$STATE" ] && die "이미 주입된 장애가 있다. 먼저 restore 를 불러라"
