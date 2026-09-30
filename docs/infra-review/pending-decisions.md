@@ -103,6 +103,36 @@ ConsumedLCUs      (미정) 초과
 
 시스템 디자인 종합 593~602행의 설정값 5종(socketTimeout, 풀 크기, 트랜잭션 타임아웃, 톰캣 스레드, ALB 임계값)도 부하 시험 후 확정한다.
 
+### 2.1.1 컨테이너 메모리 한도 (측정으로 드러난 결함)
+
+**`compose.yaml.tftpl` 의 주석과 설정이 어긋나 있다.**
+
+```
+주석    "MaxRAMPercentage 는 컨테이너 한도 기준이다"
+설정    mem_limit 도 deploy.resources.limits 도 없다
+```
+
+**그래서 70% 가 호스트 기준으로 잡힌다.** t3.small 의 1,906MB 에서 힙이 약 1.33GB 다. 그 한 대
+위에서 node-exporter 와 cadvisor 와 alloy 와 dockerd 가 남은 30% 를 나눠 쓴다.
+
+**2026-10-01 회차에서 쿠폰 인스턴스 세 대가 전부 커널 OOM 으로 죽었다.** 캐시 페일오버 중에
+재시도가 47,208건까지 불면서 RSS 가 1.38GB 에 닿았다.
+
+```
+18:27:01  Out of memory: Killed process (java)  anon-rss 1,415,292 kB
+18:28:22  Out of memory: Killed process (java)  anon-rss 1,412,924 kB
+```
+
+| 정할 값 | 어떻게 구하는가 |
+|---|---|
+| 앱 컨테이너 `mem_limit` | 호스트 메모리에서 관측 컨테이너 넷의 실측 사용량을 뺀다 |
+| 그 한도에서의 `MaxRAMPercentage` | 한도를 정한 뒤 OOM 없이 도는 최대 비율 |
+
+**한도를 두면 얻는 것이 둘이다.** 주석이 말하는 대로 비율이 동작하고, 말랐을 때 커널이 아니라
+JVM 이 `OutOfMemoryError` 로 죽어 힙 덤프가 남는다. **지금은 왜 말랐는지가 안 남는다.**
+
+근거는 `fm-backend` 의 `docs/coupon/rebuild-reconnect-and-fault-2026-10-01.md` 4장이다.
+
 ### 2.2 조회하면 바로 나오는 것 (해소됨)
 
 **RDS `max_connections` 는 60 이다.** 2026-08-23 재구축 뒤 실측했고 공식에서 예측한 약 60 과 일치했다.
