@@ -8,6 +8,7 @@
 #   ./loadtest-fault.sh app+cache   위 둘을 함께
 #   ./loadtest-fault.sh cache-failover  캐시를 실제로 페일오버시킨다 (test-failover)
 #   ./loadtest-fault.sh db-failover     DB 를 실제로 페일오버시킨다 (reboot with failover)
+#   ./loadtest-fault.sh app+cache-failover  한 대를 죽이고 캐시를 페일오버시킨다 (장애 3종의 F-3)
 #   ./loadtest-fault.sh lost-tail   복제가 밀린 채 승격된 것을 흉내낸다 (가장 흔하다)
 #   ./loadtest-fault.sh seq-loss    순번 키(counter)를 지워 재건을 일으킨다
 #   ./loadtest-fault.sh app+seq-loss  한 대를 죽이고 순번 키를 지운다
@@ -445,7 +446,7 @@ while [ $# -gt 0 ]; do
     *) ARGS+=("$1"); shift ;;
   esac
 done
-[ ${#ARGS[@]} -ge 1 ] || die "시나리오를 주어라. app | cache | db | app+cache | lost-tail | seq-loss | app+seq-loss | lead-drop | cache-wipe | status | restore"
+[ ${#ARGS[@]} -ge 1 ] || die "시나리오를 주어라. app | cache | db | app+cache | cache-failover | db-failover | app+cache-failover | lost-tail | seq-loss | app+seq-loss | lead-drop | cache-wipe | status | restore"
 
 case "${ARGS[0]}" in
   status)  show_status; exit 0 ;;
