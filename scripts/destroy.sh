@@ -52,6 +52,17 @@ trap restore_guards EXIT
 account=$(aws sts get-caller-identity --query Account --output text)
 log "1. 대상 계정 $account / 리전 $REGION / 프로젝트 $PROJECT"
 
+# 대시보드를 안 뽑았으면 알린다. 지운 뒤에는 되살릴 수 없다.
+#
+# Prometheus 는 모니터링 인스턴스의 도커 볼륨에 담기고 밖으로 내보내는 설정이 없다.
+# 2026-09-30 장애 회차가 수치만 남고 그림을 통째로 잃은 자리다.
+# 절차는 backend 의 docs/coupon/coupon-load-scenarios.md 10장에 있다.
+newest=$(find "$ROOT/loadtest-runs" -name '*.png' -path '*/grafana/*' -mmin -360 2>/dev/null | head -1)
+if [ -z "$newest" ]; then
+  log "   최근 6시간 안에 뽑은 대시보드가 없다"
+  log "   회차를 돌렸다면 먼저  ./scripts/loadtest-snapshot.sh --label <회차>"
+fi
+
 if [ "${1:-}" != "--yes" ]; then
   [ -t 0 ] || die "비대화 실행에는 --yes 가 필요하다"
   printf '계정 %s 의 모든 리소스를 지운다. RDS 데이터와 S3 미디어는 복구할 수 없다.\n' "$account"
