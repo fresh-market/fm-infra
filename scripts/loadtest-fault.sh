@@ -55,15 +55,30 @@
 #
 # 이렇게 해서 queued=1645 를 얻었다. 3단계가 lead-drop 이다.
 #
+# 이 순서에는 대가가 있다. ALB 가 DB 에 못 붙는 인스턴스를 대상에서 빼므로 막아 둔 대는
+# 요청을 한 건도 안 받는다. 2026-09-30 회차가 그렇게 발급 2,886 에 재건 queued=0 을 냈다.
+# 그래서 이 순서는 큐를 쌓는 회차에만 쓰고, 장애 3종처럼 거동을 보는 회차에서는 부하를
+# 먼저 띄운 뒤에 주입한다.
+#
 # SSM 왕복도 --backlog 를 무디게 만든다. 대당 4~5초라 --backlog 1 이 실제로는 20초다.
 #
 # 주입 시점의 큐 깊이는 coupon_issue_queue_size 의 max_over_time 으로 확인한다.
 #
 # 무엇이 재건을 부르나.
 #
-# counter 가 **없을 때만** coupon-issue-seq.lua 가 -2 를 내고 그것을 받은 요청이 재건을
-# 띄운다. lost-tail 은 counter 를 줄이기만 하므로 **재건이 안 걸린다.** 이미 DB 에 커밋된
-# 번호가 조용히 다시 나가고, 그것을 막는 것은 앱이 아니라 스키마의 uk_mc_coupon_seq 다.
+# 부르는 자리가 둘이다 (fm-backend PR #238 부터).
+#
+#   재건 락이 있거나 counter 가 없으면   coupon-issue-seq.lua 가 -2 를 내고 그것을 받은
+#                                      요청이 재건을 띄운다
+#   Redis 재연결                        끊겼다 다시 붙으면 열린 이벤트를 훑어 띄운다
+#
+# lost-tail 은 counter 를 줄이기만 하고 연결을 끊지도 않으므로 **둘 다 안 걸린다.**
+# 이미 DB 에 커밋된 번호가 조용히 다시 나가고, 그것을 막는 것은 앱이 아니라 스키마의
+# uk_mc_coupon_seq 다.
+#
+# cache-failover 는 재연결 쪽을 걸 수 있다. 다만 2026-10-01 F-2 회차에서는 세 대가 다시
+# 붙기 전에 OOM 으로 죽어 활성화 이벤트가 오지 않았다 (fm-backend 의
+# docs/coupon/rebuild-reconnect-and-fault-2026-10-01.md).
 #
 # 왜 보안 그룹이 아니라 iptables 인가.
 #
@@ -284,10 +299,10 @@ drop_keys() {
 # 그 세 효과가 통째로 같이 사라진다. 그래서 seq 와 pending 에서도 같은 회원을 지운다.
 # counter 만 줄이면 실제로 안 생기는 모양이라 시험의 값이 떨어진다.
 #
-# **이 경우에는 재건이 안 걸린다.** coupon-issue-seq.lua 는 counter 가 없을 때만 -2 를
-# 낸다. 값이 작아진 것은 못 본다. 그래서 이미 DB 에 커밋된 번호가 조용히 다시 나가고,
-# 그것을 막는 것은 앱이 아니라 스키마의 uk_mc_coupon_seq 다. 이 회차가 보려는 것이
-# 바로 그 지점이다.
+# **이 경우에는 재건이 안 걸린다.** coupon-issue-seq.lua 는 재건 락이 있거나 counter 가
+# 없을 때 -2 를 내는데, 값이 작아진 것은 둘 다 아니다. 연결도 안 끊기므로 재연결 쪽도
+# 안 걸린다. 그래서 이미 DB 에 커밋된 번호가 조용히 다시 나가고, 그것을 막는 것은 앱이
+# 아니라 스키마의 uk_mc_coupon_seq 다. 이 회차가 보려는 것이 바로 그 지점이다.
 LOST_TAIL_LUA=$(cat <<'LUAEOF'
 -- KEYS[1]=seq KEYS[2]=pending KEYS[3]=counter  ARGV[1]=유실시킬 건수
 local n = tonumber(redis.call('GET', KEYS[3]))
