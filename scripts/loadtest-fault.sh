@@ -187,13 +187,26 @@ stop_one_app() {
 #
 # 이 둘은 restore 가 필요 없다. AWS 가 스스로 되돌려 놓는다.
 failover_cache() {
-  local rg="$PROJECT-cache" node
+  local rg="$PROJECT-cache" node err
   node=$(aws elasticache describe-replication-groups --region "$REGION" \
          --replication-group-id "$rg" \
          --query 'ReplicationGroups[0].NodeGroups[0].NodeGroupId' --output text)
   log "캐시 페일오버  $rg  노드그룹 $node"
-  aws elasticache test-failover --region "$REGION" \
-    --replication-group-id "$rg" --node-group-id "$node" > /dev/null
+
+  # 거부를 그냥 흘리면 안 된다. set -e 가 여기서 스크립트를 죽이지만 종료 코드만으로는
+  # 왜 거부됐는지 알 수 없고, 부르는 쪽이 그 코드를 흘리면 주입 없이 회차가 돈다.
+  # 2026-10-02 G-3 회차가 그렇게 앱 종료만 걸린 채 "복합 장애" 로 기록됐다.
+  if ! err=$(aws elasticache test-failover --region "$REGION" \
+               --replication-group-id "$rg" --node-group-id "$node" 2>&1 >/dev/null); then
+    case "$err" in
+      *TestFailoverNotAvailableFault*)
+        die "test-failover 가 거부됐다. 같은 노드그룹은 24시간에 5회까지이고 직전 페일오버가 끝나야 다음을 받는다. 노드그룹을 바꾸거나 시간을 두고 다시 걸어라.
+$err" ;;
+      *)
+        die "test-failover 가 실패했다.
+$err" ;;
+    esac
+  fi
   printf 'failover|cache\n' >> "$STATE"
 }
 
