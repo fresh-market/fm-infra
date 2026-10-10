@@ -3,8 +3,16 @@
 # 부하 시험 데이터를 RDS 에 넣고 되돌리고 결과를 센다.
 #
 #   ./loadtest-seed.sh apply    회원 2만, 쿠폰 900001, 주변 데이터를 넣는다
+#   ./loadtest-seed.sh coupon   쿠폰만 다시 붓는다. 회원과 주변 데이터는 그대로 둔다
 #   ./loadtest-seed.sh reset    회차 사이에 되돌린다
 #   ./loadtest-seed.sh verify   몇 장이 나갔는지 센다
+#
+# 회차마다 다른 쿠폰을 쓰려면 COUPON_ID 를 준다. 아래 네 액션이 모두 그 값을 따른다.
+#
+#   COUPON_ID=900002 ./loadtest-seed.sh coupon
+#
+# 같은 쿠폰을 거듭 쓰면 앱이 든 highWater 와 어긋나 장애가 없는 회차에도 뒤처짐이 쏟아진다.
+# 근거는 fm-backend/loadtest/seed-coupon.sql 주석에 있다.
 #
 # 로컬 절차(fm-backend/loadtest/README.md)는 docker exec 로 컨테이너 MySQL 에 붓는다.
 # RDS 는 그게 안 되고, 부하 생성기는 SG 가 3306 을 막아 직접 못 붙는다. 일부러 그렇게 두었다.
@@ -168,6 +176,13 @@ apply)
   printf '  1. 토큰 찍기      부하 생성기에서 sudo /opt/loadtest/refresh.sh\n'
   printf '  2. 이벤트 열기    앱의 관리자 API. SQL 로 is_active 만 켜면 안 된다\n'
   printf '     카운터 없는 Redis 를 요청이 쳐서 전부 "준비되지 않음" 으로 끝난다\n\n'
+  ;;
+
+coupon)
+  log "1. 쿠폰만 다시 붓는다. COUPON_ID=$COUPON_ID"
+  run_on_batch "$(pour 'seed-coupon.sql')"
+  log "완료"
+  printf '\n이벤트는 아직 안 열렸다. 앱의 관리자 API 로 열어야 Redis 카운터가 선다.\n\n'
   ;;
 
 reset)
