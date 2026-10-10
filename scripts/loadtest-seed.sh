@@ -22,6 +22,10 @@ REGION="${AWS_REGION:-ap-northeast-2}"
 ORG="${GITHUB_ORG:-fresh-market}"
 REPO="${BACKEND_REPO:-fm-backend}"
 REF="${BACKEND_REF:-main}"
+# 회차마다 다른 쿠폰을 쓰려면 이 값을 준다. 시드와 검산과 아래 SQL 이 모두 이것을 따른다.
+#
+# 같은 쿠폰을 거듭 쓰면 앱이 든 highWater 와 어긋나 장애가 없는 회차에도
+# COUPON_SEQ_COUNTER_BEHIND 가 쏟아진다. 근거는 seed-coupon.sql 주석에 있다.
 COUPON_ID="${COUPON_ID:-900001}"
 
 ACTION="${1:-}"
@@ -134,10 +138,13 @@ print(json.dumps({"commands": [
 }
 
 # 파일마다 따로 붓는다. 하나로 이으면 어디서 깨졌는지 못 읽는다.
+#
+# 쿠폰 번호를 세션 변수로 앞에 흘려넣는다. seed-coupon.sql 이 @coupon_id_in 을 받아 쓰고,
+# 안 주면 그 파일의 기본값으로 돈다. 회차마다 다른 쿠폰을 써야 하는 이유는 그 파일 주석에 있다.
 pour() {
   local files="$1"
-  printf 'P=/%s\nR=%s\n%s\nfor f in %s; do\n  echo "-- $f"\n  curl -fsSL "%s/$f" | %s\ndone\necho 완료\n' \
-    "$PROJECT" "$REGION" "$(db_preamble)" "$files" "$BASE_RAW" "$(mysql_cmd)"
+  printf 'P=/%s\nR=%s\n%s\nfor f in %s; do\n  echo "-- $f"\n  { echo "SET @coupon_id_in = %s;"; curl -fsSL "%s/$f"; } | %s\ndone\necho 완료\n' \
+    "$PROJECT" "$REGION" "$(db_preamble)" "$files" "$COUPON_ID" "$BASE_RAW" "$(mysql_cmd)"
 }
 
 case "$ACTION" in
