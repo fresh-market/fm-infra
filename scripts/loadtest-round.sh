@@ -168,10 +168,16 @@ log "8. 되돌린다"
 # 회차가 시작한 뒤의 로그만 받는다. 컨테이너 로그가 누적되므로 --since 없이 tail 을 쓰면
 # 앞 회차의 줄이 섞인다. 2026-10-10 J-3 수집물에 16분 전 J-2 의 재건 로그가 들어 있었다.
 #
-# 수천 건씩 나는 둘은 받지 않는다. COUPON_SEQ_COUNTER_BEHIND 와 COUPON_SEQ_CONTRIBUTED 가
-# tail 한도를 다 먹어 한 번만 나는 사건(REBUILT, REBUILD_FAILED, RECONNECT_DETECTED)을
-# 밀어낸다. 실제로 J-4 에서 REBUILT 줄을 놓쳐 SSM 으로 따로 뽑아야 했다. 그 둘의 건수는
-# 아래 10번이 지표로 센다.
+# 수천 건씩 나는 COUPON_SEQ_COUNTER_BEHIND 는 받지 않는다. tail 한도를 다 먹어 한 번만 나는
+# 사건(REBUILT, REBUILD_FAILED, RECONNECT_DETECTED)을 밀어낸다. 실제로 J-4 에서 REBUILT 줄을
+# 놓쳐 SSM 으로 따로 뽑아야 했다. 그 건수는 아래 9.5 가 지표로 센다.
+#
+# COUPON_SEQ_CONTRIBUTED 는 받는다. 어느 대가 기여를 올렸는지가 "재건이 남의 큐를 다 받았나"
+# 를 가리는 유일한 단서다. 2026-10-10 N-2 에서 이것을 패턴에서 빼 두어, 3대가 도는 중에 재건이
+# 2대의 기여만 기다린 것을 보고도 빠진 대가 올렸는지 끝내 가리지 못했다.
+#
+# 올리기는 쿠폰당 인스턴스당 한 번이라 수천 건이 되지 않는다. 그 회차에서 많아 보였던 것은
+# 쿠폰이 여섯 개 열려 있었던 탓이고 그쪽은 reset 이 고쳤다.
 log "9. 재건과 올리기 로그"
 SINCE=$(python3 -c "import time; print(int($START_MS/1000) - 5)")
 : > "$DIR/rebuild.txt"
@@ -179,7 +185,7 @@ while IFS= read -r id; do
   [ -n "$id" ] || continue
   {
     printf '  [%s]\n' "$id"
-    if run_ssm "$id" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_REBUILD|COUPON_SEQ_REBUILT|COUPON_SEQ_RECONNECT|COUPON_SEQ_CONTRIBUTIONS_\" | tail -40"; then
+    if run_ssm "$id" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_REBUILD|COUPON_SEQ_REBUILT|COUPON_SEQ_RECONNECT|COUPON_SEQ_CONTRIBUT\" | tail -60"; then
       if [ -n "$SSM_OUT" ]; then printf '%s\n' "$SSM_OUT" | sed 's/^/    /'; else printf '    (없음)\n'; fi
     else
       printf '    (SSM %s)\n' "$SSM_STATUS"
