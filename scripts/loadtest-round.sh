@@ -172,9 +172,12 @@ log "8. 되돌린다"
 # 사건(REBUILT, REBUILD_FAILED, RECONNECT_DETECTED)을 밀어낸다. 실제로 J-4 에서 REBUILT 줄을
 # 놓쳐 SSM 으로 따로 뽑아야 했다. 그 건수는 아래 9.5 가 지표로 센다.
 #
-# COUPON_SEQ_CONTRIBUTED 는 받는다. 어느 대가 기여를 올렸는지가 "재건이 남의 큐를 다 받았나"
-# 를 가리는 유일한 단서다. 2026-10-10 N-2 에서 이것을 패턴에서 빼 두어, 3대가 도는 중에 재건이
-# 2대의 기여만 기다린 것을 보고도 빠진 대가 올렸는지 끝내 가리지 못했다.
+# COUPON_SEQ_RESTORED 는 받는다. 각 대가 자기 큐를 몇 건 되살렸는지가 "빠진 대가 있었나" 를
+# 가리는 단서다. 2026-10-12 U-1 에서 이 이름을 패턴에 안 넣어 한 줄도 못 받았다. 2026-10-10
+# N-2 에서 COUPON_SEQ_CONTRIBUTED 로 똑같이 밟은 함정이다.
+#
+# COUPON_SEQ_RECONNECT 는 뺀다. 재연결 감시를 지워 그 이벤트가 더 이상 안 난다
+# (fm-backend docs/coupon/rebuild-rearchitecture-2026-10-12.md 6.4).
 #
 # 올리기는 쿠폰당 인스턴스당 한 번이라 수천 건이 되지 않는다. 그 회차에서 많아 보였던 것은
 # 쿠폰이 여섯 개 열려 있었던 탓이고 그쪽은 reset 이 고쳤다.
@@ -185,13 +188,31 @@ while IFS= read -r id; do
   [ -n "$id" ] || continue
   {
     printf '  [%s]\n' "$id"
-    if run_ssm "$id" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_REBUILD|COUPON_SEQ_REBUILT|COUPON_SEQ_RECONNECT|COUPON_SEQ_CONTRIBUT\" | tail -60"; then
+    if run_ssm "$id" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_REBUILD|COUPON_SEQ_REBUILT|COUPON_SEQ_RESTORED|COUPON_SEQ_FREE\" | tail -60"; then
       if [ -n "$SSM_OUT" ]; then printf '%s\n' "$SSM_OUT" | sed 's/^/    /'; else printf '    (없음)\n'; fi
     else
       printf '    (SSM %s)\n' "$SSM_STATUS"
     fi
   } >> "$DIR/rebuild.txt"
 done <<< "$IDS"
+
+# 쓸기는 배치에서 돈다. 전용만 받으면 그 로그를 한 줄도 못 본다.
+#
+# 2026-10-13 V-1 에서 쓸기가 36번 연달아 죽었는데 수집 대상이 전용뿐이라 그 사실을 DB 를
+# 따로 뒤져서야 알았다. 쓸기가 되살린 수와 실패 이유가 여기서만 나온다.
+BATCH=$(aws ec2 describe-instances --region "$REGION" \
+  --filters 'Name=tag:Role,Values=batch' 'Name=instance-state-name,Values=running' \
+  --query 'Reservations[0].Instances[0].InstanceId' --output text)
+if [ -n "$BATCH" ] && [ "$BATCH" != None ]; then
+  {
+    printf '  [%s 배치]\n' "$BATCH"
+    if run_ssm "$BATCH" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_FREE\" | tail -40"; then
+      if [ -n "$SSM_OUT" ]; then printf '%s\n' "$SSM_OUT" | sed 's/^/    /'; else printf '    (없음)\n'; fi
+    else
+      printf '    (SSM %s)\n' "$SSM_STATUS"
+    fi
+  } >> "$DIR/rebuild.txt"
+fi
 cat "$DIR/rebuild.txt" | tee -a "$DIR/round.log"
 
 # ---------------------------------------------------------------- 9.5 건수 지표
