@@ -24,8 +24,20 @@
 # bootstrap/ 이 갖는 것은 대상이 아니다. tfstate 버킷과 SecureString 시크릿이 살아남는다.
 # 시크릿은 표준 파라미터라 무료이므로 지워봐야 아끼는 것이 없고 재입력만 생긴다.
 #
-# 이 스크립트는 대상이 없어 실제로 검증된 적이 없다. 절차는 2026-08-21 수동 파괴에서 나왔다.
-# 다음 재구축 후 첫 파괴 때가 실검증이다.
+# stop.sh 를 먼저 돌리면 안 된다. 3단계 apply 가 거기서 죽는다.
+#
+#   Error: updating RDS DB Instance: unexpected state 'stopped',
+#          wanted target 'available, storage-optimization'
+#
+# 2단계가 deletion_protection 을 false 로 고치고 3단계가 그것을 AWS 에 반영하는데, stopped 인
+# RDS 는 수정을 받지 않는다. 그러면 RDS 를 다시 띄워(약 9분) available 을 기다린 뒤 다시
+# 돌려야 한다. 2026-10-13 에 그렇게 15분을 썼다.
+#
+# 이 스크립트만 돌리면 된다. 자기가 알아서 다 내린다. 아낄 것이 있어 중지부터 하고 싶어도
+# 순서가 거꾸로다.
+#
+# 2026-10-12 와 2026-10-13 에 실검증했다. 비대화 실행에 --yes 가 필요한 것 하나만 걸렸고
+# 119개 자원이 전부 지워졌다. 절차는 2026-08-21 수동 파괴에서 나왔다.
 
 set -euo pipefail
 

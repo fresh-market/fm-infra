@@ -14,6 +14,15 @@
 #
 # 대가는 시험 중에 누가 apply 를 돌리면 이 인스턴스가 사라진다는 것이다.
 # 그때는 up 을 다시 부르면 된다. 반대쪽 실수보다 싸다.
+#
+# 반대 방향도 있다. down 이 terraform apply 라서 stop.sh 가 내려 둔 용량을 되살린다.
+#
+# 2026-10-13 에 down -> stop -> down 순으로 돌렸더니 마지막 apply 가 ASG 를 min 2 로
+# 되돌려 인스턴스 넷이 다시 떴다. 세션을 끝낼 때는 이 순서를 지킨다.
+#
+#   ./loadtest-box.sh down
+#   ./coupon-event.sh close      stop.sh 는 전용 ASG 를 안 건드린다
+#   ./stop.sh
 
 set -euo pipefail
 
