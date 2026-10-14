@@ -307,7 +307,7 @@ variable "instance_types" {
  * 단위는 MiB 다. docker 의 m 접미사와 free -m 이 둘 다 MiB 라 섞이지 않는다.
  *
  *   MemTotal               1,905 MiB  free -m 실측. 2 GiB 에서 커널이 예약한 만큼 뺀 값이다
- *   app                    1,200 MiB  MaxRAMPercentage=70 -> 힙 840 MiB
+ *   app                    1,200 MiB  안에서 힙 720 과 다이렉트 128 을 따로 묶는다
  *   cadvisor                 128 MiB
  *   alloy                    128 MiB
  *   node-exporter             48 MiB
@@ -315,7 +315,12 @@ variable "instance_types" {
  *   남는 것                  401 MiB  OS 와 systemd 와 dockerd 와 페이지 캐시가 여기 산다
  *
  * 한도가 없던 동안의 힙 상한이 1,905 의 70% 인 1,333 MiB 였고, 측정된 anon-rss 1.37GB 가
- * 그 값에 닿은 자리다. 이제 그 상한이 1,200 의 70% 다.
+ * 그 값에 닿은 자리다. 이제 그 상한이 1,200 의 60% 인 720 MiB 다.
+ *
+ * 비율을 70 에서 60 으로 내린 까닭은 MaxRAMPercentage 가 힙만 재기 때문이다. 다이렉트와
+ * 메타스페이스와 코드 캐시와 스레드 스택은 그 비율 밖에 있고, 그것들이 한도 안에서 자리를
+ * 차지한다. 특히 MaxDirectMemorySize 의 기본값이 최대 힙이라 묶지 않으면 한도의 두 배를
+ * 요구하게 된다. 내역은 compose 템플릿의 JAVA_TOOL_OPTIONS 주석에 있다.
  *
  * 관측 셋의 값은 아직 실측이 아니라 예산이다. pending-decisions.md 2.1.1 이 정한 구하는
  * 방법은 "호스트 메모리에서 관측 컨테이너 넷의 실측 사용량을 뺀다" 이고, 그 실측은 회차에서

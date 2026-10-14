@@ -59,6 +59,25 @@ services:
       #
       # DNS TTL 이 결정적이다. 이것이 빠지면 페일오버 후 옛 주소를 계속 찾는다.
       #
+      # 한도 1,200 MiB 안에서 힙과 다이렉트를 둘 다 묶는다.
+      #
+      # 묶어야 하는 까닭은 MaxDirectMemorySize 의 기본값이 최대 힙이라서다. 힙만 70% 로
+      # 묶으면 840 + 840 이 되어 한도를 넘고, 그때는 cgroup 이 컨테이너를 죽인다. 비율을
+      # 60 으로 내린 것도 같은 까닭이다. MaxRAMPercentage 는 힙만 재고 나머지는 안 센다.
+      #
+      #   힙             720 MiB   MaxRAMPercentage=60
+      #   다이렉트       128 MiB   MaxDirectMemorySize. Netty 가 쓰는 자리다
+      #   메타스페이스   ~100 MiB
+      #   코드 캐시       ~64 MiB
+      #   스레드 스택     ~48 MiB
+      #   JVM 내부       ~80 MiB
+      #   합계         ~1,140 MiB  <  1,200
+      #
+      # 다이렉트를 묶는 두 번째 값어치는 터지는 자리가 드러나는 것이다. 안 묶으면 그 증가가
+      # RSS 로만 보이고 jvm_memory_used_bytes 에는 안 잡힌다. 2026-10-01 F-2 가 그 모양이었다.
+      # 힙 used 합계가 1.2 GiB 안팎인데 anon-rss 가 1.4GB 였다. 묶으면 그 자리에서
+      # "OutOfMemoryError: Direct buffer memory" 가 난다.
+      #
       # 힙이 마르면 덤프를 남기고 죽는다. 한도와 짝이라 여기 있다.
       #
       # 한도가 없던 동안에는 호스트가 먼저 말라 커널이 자바를 골랐고, 그래서 터진 까닭이
@@ -70,7 +89,8 @@ services:
       # 통과하면 ALB 가 계속 요청을 보낸다. 죽으면 위 restart 가 되살린다.
       #
       JAVA_TOOL_OPTIONS: >-
-        -XX:MaxRAMPercentage=70
+        -XX:MaxRAMPercentage=60
+        -XX:MaxDirectMemorySize=128m
         -XX:+HeapDumpOnOutOfMemoryError
         -XX:HeapDumpPath=/dumps
         -XX:+ExitOnOutOfMemoryError
