@@ -7,6 +7,9 @@ services:
     ports:
       - "8080:8080"
       - "8081:8081"
+    volumes:
+      # 힙 덤프를 호스트에 남긴다. 아래 HeapDumpPath 와 같은 자리다
+      - /opt/${project}/dumps:/dumps
     environment:
       SPRING_PROFILES_ACTIVE: "${profiles}"
       #
@@ -55,8 +58,22 @@ services:
       # 복합 장애 회차 세 번이 커널 OOM 에 덮였다. 한도를 지우면 그 상태로 돌아간다.
       #
       # DNS TTL 이 결정적이다. 이것이 빠지면 페일오버 후 옛 주소를 계속 찾는다.
+      #
+      # 힙이 마르면 덤프를 남기고 죽는다. 한도와 짝이라 여기 있다.
+      #
+      # 한도가 없던 동안에는 호스트가 먼저 말라 커널이 자바를 골랐고, 그래서 터진 까닭이
+      # 아무 데도 안 남았다 (rebuild-reconnect-and-fault-2026-10-01.md 4장이 "지금은 왜
+      # 말랐는지가 안 남는다" 로 적은 자리다). 한도를 걸면 힙이 먼저 마르므로 OutOfMemoryError
+      # 가 나는데, 그것만으로 덤프가 생기지는 않는다. 이 플래그가 있어야 생긴다.
+      #
+      # ExitOnOutOfMemoryError 를 함께 준다. OOME 를 삼키고 반쯤 살아 있는 앱이 헬스체크를
+      # 통과하면 ALB 가 계속 요청을 보낸다. 죽으면 위 restart 가 되살린다.
+      #
       JAVA_TOOL_OPTIONS: >-
         -XX:MaxRAMPercentage=70
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/dumps
+        -XX:+ExitOnOutOfMemoryError
         -Dnetworkaddress.cache.ttl=5
         -Dnetworkaddress.cache.negative.ttl=1
     healthcheck:
