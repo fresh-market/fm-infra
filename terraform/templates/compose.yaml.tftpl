@@ -48,7 +48,12 @@ services:
       APP_NAME: "${project}"
       APP_INSTANCE_ID: "$${APP_INSTANCE_ID}"
       TRACE_SAMPLE_RATE: "0.1"
-      # MaxRAMPercentage 는 컨테이너 한도 기준이다.
+      #
+      # MaxRAMPercentage 는 컨테이너 한도 기준이다. 그래서 아래 mem_limit 과 짝이다.
+      #
+      # 한도가 없던 동안 이 70% 가 호스트 전체의 70% 로 잡혀 힙이 1,333MB 까지 자랐고,
+      # 복합 장애 회차 세 번이 커널 OOM 에 덮였다. 한도를 지우면 그 상태로 돌아간다.
+      #
       # DNS TTL 이 결정적이다. 이것이 빠지면 페일오버 후 옛 주소를 계속 찾는다.
       JAVA_TOOL_OPTIONS: >-
         -XX:MaxRAMPercentage=70
@@ -60,6 +65,14 @@ services:
       timeout: 3s
       retries: 3
       start_period: 60s
+    #
+    # 예산은 variables.tf 의 container_mem_limits 가 갖는다.
+    #
+    # 이 한도가 터지면 cgroup 이 이 컨테이너만 죽이고 위 restart 가 되살린다. 커널이
+    # 호스트에서 아무 프로세스나 고르던 것과 다른 점이 그것이고, cAdvisor 가
+    # container_oom_events_total 로 기록하므로 회차 뒤에 누가 터졌는지 알 수 있다.
+    #
+    mem_limit: ${mem_limit_app}
     # 종료 타임아웃 계층. Spring graceful 30초보다 길고 systemd 60초보다 짧다.
     stop_grace_period: 45s
     logging:
@@ -68,6 +81,12 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  #
+  # 관측 셋에도 한도를 건다. 안 걸면 예산이 이름만 예산이다.
+  #
+  # 앱만 한도를 걸면 이 셋이 자라서 호스트가 마르고, 그때 커널이 고르는 쪽은 다시 앱이다.
+  # 앱 한도 안에서 죽는 것과 호스트가 말라 죽는 것을 가르려면 넷을 다 묶어야 한다.
+  #
   # 호스트 지표. CPU 크레딧이 여기서 나온다. 모니터링이 9100 으로 긁는다.
   node-exporter:
     image: prom/node-exporter:v1.9.1
@@ -80,6 +99,7 @@ services:
       - /:/host:ro,rslave
     command:
       - --path.rootfs=/host
+    mem_limit: ${mem_limit_node_exporter}
 
   # 컨테이너 지표. OOM 감지가 여기서 나온다.
   # 기본 포트가 8080 이라 앱과 겹친다. 8082 로 옮긴다.
@@ -96,6 +116,7 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
+    mem_limit: ${mem_limit_cadvisor}
 
   # 컨테이너 로그를 Loki 로 민다. Loki 는 모니터링 인스턴스에 있다.
   alloy:
@@ -113,3 +134,4 @@ services:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
       - /etc/alloy/config.alloy
+    mem_limit: ${mem_limit_alloy}

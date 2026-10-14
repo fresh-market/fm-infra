@@ -133,6 +133,50 @@ JVM 이 `OutOfMemoryError` 로 죽어 힙 덤프가 남는다. **지금은 왜 �
 
 근거는 `fm-backend` 의 `docs/coupon/rebuild-reconnect-and-fault-2026-10-01.md` 4장이다.
 
+#### 2026-10-14 에 넣은 한도
+
+**같은 일이 2026-10-13 에 세 번 더 났다.** S-2 와 V-4 와 W-1 이 전부 복합 장애 회차였고, 셋 다
+커널 OOM 에 덮여 측정이 성립하지 않았다.
+
+```
+i-0c4771c4   oom-kill 3건   java anon-rss 1,399,604kB
+i-0a039d03   oom-kill 3건   java anon-rss 1,414,844kB
+```
+
+**한도를 `variables.tf` 의 `container_mem_limits` 에 넣었다.** 넷을 다 묶었다. 앱만 걸면 관측
+셋이 자라서 호스트가 마르고, 그때 커널이 고르는 쪽은 다시 앱이다.
+
+```
+MemTotal               1,905 MiB   free -m 실측
+app                    1,200 MiB   MaxRAMPercentage=70 -> 힙 840 MiB
+cadvisor                 128 MiB
+alloy                    128 MiB
+node-exporter             48 MiB
+한도 합계              1,504 MiB
+남는 것                  401 MiB   OS 와 systemd 와 dockerd 와 페이지 캐시
+```
+
+**관측 셋의 세 값은 아직 실측이 아니라 예산이다.** 위 표가 정한 구하는 방법을 따르려면 그 넷의
+실사용량이 있어야 하는데, 그것을 재는 경로가 Prometheus 뿐이고 Prometheus 는 인프라와 함께
+내려가 있었다. 그래서 순서를 뒤집었다. **한도를 먼저 걸어 회차가 해석 가능해지게 하고, 그 회차가
+내놓는 수치로 값을 고친다.**
+
+재는 것은 `loadtest-export.sh` 에 넣은 셋이다.
+
+| 지표 | 무엇을 정하나 |
+|---|---|
+| `container_memory_working_set_bytes` | 관측 셋 세 값의 실측. 남는 401 MiB 를 앱에 줄지 정한다 |
+| `container_oom_events_total` | 누가 한도에 닿았나. 0 이 아니면 그 컨테이너의 한도가 모자라다 |
+| `container_spec_memory_limit_bytes` | 한도가 실제로 걸렸는지. 이것이 0 이면 위 둘이 무의미하다 |
+
+**셋째가 먼저다.** 한도가 안 걸린 채로 회차를 돌면 예전과 같은 판을 다시 돌리는 것이고, 그것을
+회차 뒤에 알면 그 회차를 버린다.
+
+**한도가 모자랄 위험을 알고 넣는다.** 힙 상한이 1,333 에서 840 MiB 로 줄어드는 것이라, 복합
+장애에서 재시도가 쌓이면 GC 가 더 돌고 p99 가 밀릴 수 있다. 그 경우에도 전과 다른 점이 있다.
+**컨테이너만 죽고 docker 가 되살리며 그 사실이 지표에 남는다.** 커널이 호스트에서 아무 프로세스나
+고르던 것은 회차를 통째로 해석 불가로 만들었다.
+
 ### 2.2 조회하면 바로 나오는 것 (해소됨)
 
 **RDS `max_connections` 는 60 이다.** 2026-08-23 재구축 뒤 실측했고 공식에서 예측한 약 60 과 일치했다.

@@ -291,6 +291,50 @@ variable "instance_types" {
   }
 }
 
+/*
+ * 컨테이너 메모리 한도. t3.small 한 대를 넷으로 가른 예산이다.
+ *
+ * 한도가 없으면 compose 의 MaxRAMPercentage=70 이 컨테이너가 아니라 호스트 전체의 70% 가
+ * 된다. 그래서 JVM 이 힙을 1,333 MiB 까지 늘릴 수 있었고, 남은 30% 를 node-exporter 와
+ * cadvisor 와 alloy 와 dockerd 가 나눠 쓰다가 커널이 자바를 골라 죽였다. 복합 장애 회차가
+ * 세 번 연속 그렇게 덮였다 (2026-10-13 W-1: java anon-rss 1,399,604kB / 1,414,844kB).
+ *
+ * 한도를 걸면 둘을 얻는다. 주석이 말하는 대로 비율이 동작하고, 터지는 자리가 cgroup 으로
+ * 옮겨 가서 커널이 호스트에서 아무 프로세스나 고르는 대신 그 컨테이너만 죽고 docker 가
+ * 되살린다. cAdvisor 의 container_oom_events_total 이 그것을 기록하므로 회차 뒤에 누가
+ * 왜 터졌는지가 남는다. 지금은 그것이 안 남는다.
+ *
+ * 단위는 MiB 다. docker 의 m 접미사와 free -m 이 둘 다 MiB 라 섞이지 않는다.
+ *
+ *   MemTotal               1,905 MiB  free -m 실측. 2 GiB 에서 커널이 예약한 만큼 뺀 값이다
+ *   app                    1,200 MiB  MaxRAMPercentage=70 -> 힙 840 MiB
+ *   cadvisor                 128 MiB
+ *   alloy                    128 MiB
+ *   node-exporter             48 MiB
+ *   한도 합계              1,504 MiB
+ *   남는 것                  401 MiB  OS 와 systemd 와 dockerd 와 페이지 캐시가 여기 산다
+ *
+ * 한도가 없던 동안의 힙 상한이 1,905 의 70% 인 1,333 MiB 였고, 측정된 anon-rss 1.37GB 가
+ * 그 값에 닿은 자리다. 이제 그 상한이 1,200 의 70% 다.
+ *
+ * 관측 셋의 값은 아직 실측이 아니라 예산이다. pending-decisions.md 2.1.1 이 정한 구하는
+ * 방법은 "호스트 메모리에서 관측 컨테이너 넷의 실측 사용량을 뺀다" 이고, 그 실측은 회차에서
+ * container_memory_working_set_bytes 로 나온다. 첫 회차 뒤에 이 값들을 고친다.
+ *
+ * instance_types.app 을 바꾸면 이 값도 함께 바꿔야 한다. 비율이 아니라 절대값이다.
+ */
+variable "container_mem_limits" {
+  description = "역할별이 아니라 컨테이너별 메모리 한도. 미결정 값 문서 2.1.1"
+  type        = map(string)
+
+  default = {
+    app           = "1200m"
+    cadvisor      = "128m"
+    alloy         = "128m"
+    node_exporter = "48m"
+  }
+}
+
 variable "db_instance_class" {
   description = "RDS 인스턴스 클래스"
   type        = string

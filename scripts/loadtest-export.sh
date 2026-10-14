@@ -100,6 +100,9 @@ redis_connected_clients
 redis_commands_processed_total
 node_cpu_seconds_total
 node_memory_MemAvailable_bytes
+container_memory_working_set_bytes
+container_oom_events_total
+container_spec_memory_limit_bytes
 node_load1
 up
 LIST

@@ -96,6 +96,11 @@ locals {
     app_image   = local.app_image
     db_name     = var.db_name
     db_username = var.db_username
+    # 세 역할이 모두 t3.small 이라 예산이 하나다. 근거는 variables.tf 의 그 변수 주석이다.
+    mem_limit_app           = var.container_mem_limits["app"]
+    mem_limit_cadvisor      = var.container_mem_limits["cadvisor"]
+    mem_limit_alloy         = var.container_mem_limits["alloy"]
+    mem_limit_node_exporter = var.container_mem_limits["node_exporter"]
   }
 
   app_user_data = templatefile("${path.module}/templates/app-user-data.sh.tftpl", {
