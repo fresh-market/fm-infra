@@ -82,6 +82,7 @@ k6_coupon_unexpected_total
 k6_coupon_connect_failed_total
 coupon_issue_queue_size
 coupon_issue_results_total
+coupon_issue_seq_repaired_total
 jvm_memory_used_bytes
 jvm_gc_pause_seconds_count
 jvm_threads_live_threads

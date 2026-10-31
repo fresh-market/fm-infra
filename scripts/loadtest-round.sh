@@ -178,6 +178,13 @@ log "8. 되돌린다"
 #
 # COUPON_SEQ_RECONNECT 는 뺀다. 재연결 감시를 지워 그 이벤트가 더 이상 안 난다
 #
+# COUPON_ISSUE_SEQ_REPAIRED 를 넣는다. 한 회원이 번호를 두 번 받아 하나를 반납한 건이고,
+# inverted=true 면 나중 번호가 남아 그 회원이 맨 뒤로 간 것이다. 재건 중 발급을 막는 설계가
+# 0 으로 만들려는 수다 (fm-backend docs/coupon/rebuild-gate-2026-10-31.md 8장).
+#
+# COUPON_SEQ_STALL 은 정지 예산을 넘겨 재건을 그만둔 건이다. 0 이 아니면 예산이나 재건
+# 속도를 다시 본다.
+#
 # COUPON_SEQ_RAISED 를 넣는다. #242 의 A 단계 완료 이벤트인데 REBUILD 로 시작하지도
 # REBUILT 도 아니라 위 넷 중 어디에도 안 걸렸다. 2026-10-14 Y 회차에서 A 단계가 돌았는지
 # 아닌지가 기록에 아예 안 남았다. 이 패턴이 새 이벤트를 놓친 것이 네 번째다.
@@ -192,7 +199,7 @@ while IFS= read -r id; do
   [ -n "$id" ] || continue
   {
     printf '  [%s]\n' "$id"
-    if run_ssm "$id" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_REBUILD|COUPON_SEQ_REBUILT|COUPON_SEQ_RAISED|COUPON_SEQ_RESTORED|COUPON_SEQ_FREE\" | tail -60"; then
+    if run_ssm "$id" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_REBUILD|COUPON_SEQ_REBUILT|COUPON_SEQ_RAISED|COUPON_SEQ_RESTORED|COUPON_SEQ_FREE|COUPON_SEQ_STALL|COUPON_ISSUE_SEQ_REPAIRED\" | tail -60"; then
       if [ -n "$SSM_OUT" ]; then printf '%s\n' "$SSM_OUT" | sed 's/^/    /'; else printf '    (없음)\n'; fi
     else
       printf '    (SSM %s)\n' "$SSM_STATUS"
