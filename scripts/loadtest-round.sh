@@ -177,6 +177,10 @@ log "8. 되돌린다"
 # N-2 에서 COUPON_SEQ_CONTRIBUTED 로 똑같이 밟은 함정이다.
 #
 # COUPON_SEQ_RECONNECT 는 뺀다. 재연결 감시를 지워 그 이벤트가 더 이상 안 난다
+#
+# COUPON_SEQ_RAISED 를 넣는다. #242 의 A 단계 완료 이벤트인데 REBUILD 로 시작하지도
+# REBUILT 도 아니라 위 넷 중 어디에도 안 걸렸다. 2026-10-14 Y 회차에서 A 단계가 돌았는지
+# 아닌지가 기록에 아예 안 남았다. 이 패턴이 새 이벤트를 놓친 것이 네 번째다.
 # (fm-backend docs/coupon/rebuild-rearchitecture-2026-10-12.md 6.4).
 #
 # 올리기는 쿠폰당 인스턴스당 한 번이라 수천 건이 되지 않는다. 그 회차에서 많아 보였던 것은
@@ -188,7 +192,7 @@ while IFS= read -r id; do
   [ -n "$id" ] || continue
   {
     printf '  [%s]\n' "$id"
-    if run_ssm "$id" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_REBUILD|COUPON_SEQ_REBUILT|COUPON_SEQ_RESTORED|COUPON_SEQ_FREE\" | tail -60"; then
+    if run_ssm "$id" "docker logs --since $SINCE \$(docker ps -q --filter name=freshmarket) 2>&1 | grep -E \"COUPON_SEQ_REBUILD|COUPON_SEQ_REBUILT|COUPON_SEQ_RAISED|COUPON_SEQ_RESTORED|COUPON_SEQ_FREE\" | tail -60"; then
       if [ -n "$SSM_OUT" ]; then printf '%s\n' "$SSM_OUT" | sed 's/^/    /'; else printf '    (없음)\n'; fi
     else
       printf '    (SSM %s)\n' "$SSM_STATUS"

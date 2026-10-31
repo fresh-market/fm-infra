@@ -215,6 +215,36 @@ node-exporter             48 MiB
 | `container_oom_events_total` 이 늘고 덤프가 없다 | 힙 밖이다. 다이렉트 버퍼나 스레드 스택이다 |
 | 커널 로그에 `Out of memory` | 예산이 틀렸다. 한도 합계가 호스트를 넘었다 |
 
+#### 2026-10-14 회차에서 한도가 한 일 (해소됨)
+
+**한도는 제 일을 했다.** 여섯 회차에서 커널 `oom-kill` 이 0건이다.
+
+```
+working set 최고   792 / 920 / 867 MiB      한도 1,200 MiB
+컨테이너 재시작     장애가 죽인 대와 OOM 난 대만
+커널 oom-kill      0건
+```
+
+**터지는 자리가 옮겨 갔다.** 한 회차에서 쿠폰 인스턴스 하나가 힙을 다 썼는데, 커널이 호스트
+에서 아무 프로세스나 고르는 대신 **cgroup 이 그 컨테이너만 죽이고 덤프를 남겼다.**
+
+```
+java.lang.OutOfMemoryError: Java heap space
+Heap dump file created [811831046 bytes in 17.651 secs]
+Terminating due to java.lang.OutOfMemoryError: Java heap space
+```
+
+**힙 밖이 아니라 힙이었다.** `MaxDirectMemorySize=128m` 은 한 번도 안 걸렸다. 묶어 둔 덕에
+"다이렉트인가 힙인가" 를 에러 메시지 한 줄로 갈랐다.
+
+**관측 셋의 예산은 아직 실측으로 안 고쳤다.** 이번 회차가 `container_memory_working_set_bytes`
+를 걷도록 `loadtest-export.sh` 에 넣었으나, 앱 컨테이너 수치만 직접 확인했고 관측 셋 세 값은
+그대로 두었다. 남는 401 MiB 를 앱에 줄지는 다음 회차에서 정한다.
+
+**덤프가 알려 준 것은 이 문서의 범위를 넘는다.** 힙을 채운 것은 동시 연결 7,450개가 든 톰캣
+버퍼 약 511 MB 였고, 연결 하나당 68 KB 다. 앱 쪽 고침이라 `fm-backend` 의
+`docs/coupon/rounds-2026-10-14.md` 에 적었다.
+
 **한도가 모자랄 위험을 알고 넣는다.** 힙 상한이 1,333 에서 840 MiB 로 줄어드는 것이라, 복합
 장애에서 재시도가 쌓이면 GC 가 더 돌고 p99 가 밀릴 수 있다. 그 경우에도 전과 다른 점이 있다.
 **컨테이너만 죽고 docker 가 되살리며 그 사실이 지표에 남는다.** 커널이 호스트에서 아무 프로세스나
